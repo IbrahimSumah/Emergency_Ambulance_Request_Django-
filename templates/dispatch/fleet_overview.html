@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}Fleet Overview{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+    <div class="card">
+        <div class="card-header fw-bold"><i class="fas fa-truck me-2"></i>Ambulance Fleet</div>
+        <div class="card-body">
+            <div id="fleetTable">Loading...</div>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+fetch('/dispatch/api/ambulances/').then(r=>r.json()).then(data=>{
+    const rows = data.map(a=>`<tr>
+        <td>${a.unit_number}</td>
+        <td>${a.unit_type_display}</td>
+        <td>${a.status_display}</td>
+        <td>${a.assigned_paramedic_name||'-'}</td>
+        <td>${a.current_emergency_id||'-'}</td>
+    </tr>`).join('');
+    document.getElementById('fleetTable').innerHTML = `
+        <div class='table-responsive'>
+            <table class='table table-striped'>
+                <thead><tr><th>Unit</th><th>Type</th><th>Status</th><th>Paramedic</th><th>Call</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+});
+</script>
+{% endblock %}
+{% endblock %}
+
+

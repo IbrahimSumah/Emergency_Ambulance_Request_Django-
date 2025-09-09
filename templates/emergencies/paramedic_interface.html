@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+
+{% block title %}Field Interface{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <h5 class="card-title mb-3"><i class="fas fa-mobile-alt me-2"></i>Active Call</h5>
+            {% if active_call %}
+            <div class="mb-3">
+                <div class="fw-bold">{{ active_call.call_id }} • {{ active_call.get_emergency_type_display }}</div>
+                <div class="text-muted small"><i class="fas fa-location-dot me-1"></i>{{ active_call.location_address }}</div>
+                <div class="mt-2">Status: <span class="badge bg-primary">{{ active_call.get_status_display }}</span></div>
+            </div>
+            <div class="d-grid gap-2">
+                <button class="btn btn-outline-primary" onclick="updateStatus('EN_ROUTE')">EN ROUTE</button>
+                <button class="btn btn-outline-danger" onclick="updateStatus('ON_SCENE')">ON SCENE</button>
+                <button class="btn btn-outline-purple" onclick="updateStatus('TRANSPORTING')">TRANSPORTING</button>
+                <button class="btn btn-outline-success" onclick="updateStatus('AT_HOSPITAL')">AT HOSPITAL</button>
+                <button class="btn btn-outline-secondary" onclick="updateStatus('CLOSED')">BACK IN SERVICE</button>
+            </div>
+            {% else %}
+            <p>No active call assigned.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+.btn-outline-purple { border-color: #6f42c1; color: #6f42c1; }
+.btn-outline-purple:hover { background-color: #6f42c1; color: #fff; }
+</style>
+
+{% if active_call %}
+{% block extra_js %}
+<script>
+function updateStatus(status) {
+    fetch(`/api/emergencies/{{ active_call.id }}/status/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+    }).then(r=>r.json()).then(d=>{
+        if (d.status) {
+            showToast(`Status updated to ${status}`, 'success');
+            location.reload();
+        } else {
+            showToast('Failed to update status', 'error');
+        }
+    }).catch(()=>showToast('Network error', 'error'));
+}
+</script>
+{% endblock %}
+{% endif %}
+{% endblock %}
+
+

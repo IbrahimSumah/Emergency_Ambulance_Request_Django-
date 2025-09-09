@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Emergency Call Details - {{ call.call_id }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4>Emergency Call: {{ call.call_id }}</h4>
+                    <span class="badge badge-{{ call.status|lower }} badge-lg">{{ call.get_status_display }}</span>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>Caller Information</h5>
+                            <p><strong>Name:</strong> {{ call.caller_name }}</p>
+                            <p><strong>Phone:</strong> {{ call.caller_phone }}</p>
+                            <p><strong>Emergency Type:</strong> {{ call.get_emergency_type_display }}</p>
+                            <p><strong>Priority:</strong> 
+                                <span class="badge badge-{{ call.priority|lower }}">{{ call.get_priority_display }}</span>
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Location</h5>
+                            <p><strong>Address:</strong> {{ call.location_address }}</p>
+                            {% if call.latitude and call.longitude %}
+                            <p><strong>Coordinates:</strong> {{ call.latitude }}, {{ call.longitude }}</p>
+                            <div id="map" style="height: 200px; width: 100%;"></div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <h5>Description</h5>
+                        <p>{{ call.description }}</p>
+                    </div>
+                    
+                    {% if call.emergency_images %}
+                    <div class="mt-3">
+                        <h5>Emergency Images</h5>
+                        <div class="row">
+                            {% for image_url in call.emergency_images %}
+                            <div class="col-md-3 mb-2">
+                                <img src="{{ image_url }}" class="img-thumbnail" alt="Emergency Image">
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Assignment & Timeline</h5>
+                </div>
+                <div class="card-body">
+                    {% if call.assigned_ambulance %}
+                    <p><strong>Ambulance:</strong> {{ call.assigned_ambulance.unit_number }}</p>
+                    {% endif %}
+                    {% if call.assigned_paramedic %}
+                    <p><strong>Paramedic:</strong> {{ call.assigned_paramedic.get_full_name }}</p>
+                    {% endif %}
+                    {% if call.dispatcher %}
+                    <p><strong>Dispatcher:</strong> {{ call.dispatcher.get_full_name }}</p>
+                    {% endif %}
+                    
+                    <hr>
+                    <h6>Timeline</h6>
+                    <ul class="list-unstyled">
+                        <li><strong>Received:</strong> {{ call.received_at|date:"M d, Y H:i" }}</li>
+                        {% if call.dispatched_at %}
+                        <li><strong>Dispatched:</strong> {{ call.dispatched_at|date:"M d, Y H:i" }}</li>
+                        {% endif %}
+                        {% if call.en_route_at %}
+                        <li><strong>En Route:</strong> {{ call.en_route_at|date:"M d, Y H:i" }}</li>
+                        {% endif %}
+                        {% if call.on_scene_at %}
+                        <li><strong>On Scene:</strong> {{ call.on_scene_at|date:"M d, Y H:i" }}</li>
+                        {% endif %}
+                        {% if call.transporting_at %}
+                        <li><strong>Transporting:</strong> {{ call.transporting_at|date:"M d, Y H:i" }}</li>
+                        {% endif %}
+                        {% if call.at_hospital_at %}
+                        <li><strong>At Hospital:</strong> {{ call.at_hospital_at|date:"M d, Y H:i" }}</li>
+                        {% endif %}
+                        {% if call.closed_at %}
+                        <li><strong>Closed:</strong> {{ call.closed_at|date:"M d, Y H:i" }}</li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Initialize map if coordinates are available
+{% if call.latitude and call.longitude %}
+function initMap() {
+    const location = { lat: {{ call.latitude }}, lng: {{ call.longitude }} };
+    const map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 15,
+        center: location,
+    });
+    const marker = new google.maps.Marker({
+        position: location,
+        map: map,
+        title: "Emergency Location"
+    });
+}
+{% endif %}
+</script>
+{% endblock %}

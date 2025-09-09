@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+
+{% block title %}Emergency Ambulance System - Welcome{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5" style="background: linear-gradient(135deg, var(--light-red) 0%, var(--ivory) 100%); min-height: 100vh;">
+    <div class="row justify-content-center align-items-center min-vh-100">
+        <div class="col-xl-10 col-lg-11">
+            <div class="card shadow-lg border-0" style="border-radius: 15px; border: 3px solid var(--primary-red);">
+                <!-- Header Section -->
+                <div class="card-header text-center" style="background: linear-gradient(135deg, var(--primary-red) 0%, var(--burgundy) 100%); color: var(--ivory); border-radius: 12px 12px 0 0; padding: 3rem 2rem;">
+                    <i class="fas fa-ambulance mb-3" style="font-size: 5rem; color: var(--gold); animation: pulse 2s infinite;"></i>
+                    <h1 class="display-4 fw-bold mb-3" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">Emergency Ambulance System</h1>
+                    <p class="lead mb-0" style="color: var(--light-red); font-style: italic;">Swift • Reliable • Professional Emergency Response</p>
+                </div>
+                
+                <!-- Main Content -->
+                <div class="card-body p-5" style="background: var(--ivory);">
+                    <div class="row">
+                        <!-- Emergency Request Section -->
+                        <div class="col-lg-8 mb-4">
+                            <div class="text-center mb-4">
+                                <h2 class="text-classical-red mb-3">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>Emergency Request
+                                </h2>
+                                <p class="text-muted mb-4">Need immediate medical assistance? Request an ambulance quickly and securely.</p>
+                                
+                                <a href="{% url 'emergencies:landing' %}" class="btn btn-emergency btn-lg px-5 py-3 mb-4" style="font-size: 1.5rem;">
+                                    <i class="fas fa-ambulance me-3"></i>
+                                    REQUEST AMBULANCE
+                                </a>
+                                
+                                <div class="alert alert-warning border border-2 border-warning">
+                                    <i class="fas fa-phone-alt me-2"></i>
+                                    <strong>For life-threatening emergencies, call 911 immediately!</strong>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Staff Login Section -->
+                        <div class="col-lg-4">
+                            <div class="text-center">
+                                <h4 class="text-classical-red mb-3">
+                                    <i class="fas fa-user-shield me-2"></i>Staff Access
+                                </h4>
+                                <p class="text-muted mb-4">Dispatchers and paramedics can access the system here.</p>
+                                
+                                <a href="{% url 'core:login' %}" class="btn btn-outline-classical btn-lg px-4 py-2 mb-4">
+                                    <i class="fas fa-sign-in-alt me-2"></i>
+                                    Staff Login
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- System Status Section -->
+                    <hr class="my-5" style="border-color: var(--secondary-red);">
+                    
+                    <div class="row">
+                        <div class="col-md-3 text-center mb-3">
+                            <div class="card h-100 border-0" style="background: linear-gradient(135deg, white 0%, var(--light-red) 100%); border: 2px solid var(--secondary-red) !important;">
+                                <div class="card-body">
+                                    <i class="fas fa-check-circle text-success mb-2" style="font-size: 2rem;"></i>
+                                    <h6 class="text-classical-red fw-bold">System Status</h6>
+                                    <p class="text-muted small mb-0">Operational</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 text-center mb-3">
+                            <div class="card h-100 border-0" style="background: linear-gradient(135deg, white 0%, var(--light-red) 100%); border: 2px solid var(--secondary-red) !important;">
+                                <div class="card-body">
+                                    <i class="fas fa-truck text-info mb-2" style="font-size: 2rem;"></i>
+                                    <h6 class="text-classical-red fw-bold">Available Units</h6>
+                                    <p class="text-muted small mb-0">3/3 Active</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 text-center mb-3">
+                            <div class="card h-100 border-0" style="background: linear-gradient(135deg, white 0%, var(--light-red) 100%); border: 2px solid var(--secondary-red) !important;">
+                                <div class="card-body">
+                                    <i class="fas fa-clock text-warning mb-2" style="font-size: 2rem;"></i>
+                                    <h6 class="text-classical-red fw-bold">Response Time</h6>
+                                    <p class="text-muted small mb-0">&lt; 5 minutes</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 text-center mb-3">
+                            <div class="card h-100 border-0" style="background: linear-gradient(135deg, white 0%, var(--light-red) 100%); border: 2px solid var(--secondary-red) !important;">
+                                <div class="card-body">
+                                    <i class="fas fa-hospital text-danger mb-2" style="font-size: 2rem;"></i>
+                                    <h6 class="text-classical-red fw-bold">Hospitals</h6>
+                                    <p class="text-muted small mb-0">2 Available</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Contact Information -->
+                    <hr class="my-5" style="border-color: var(--secondary-red);">
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5 class="text-classical-red mb-3">
+                                <i class="fas fa-phone me-2"></i>Emergency Contacts
+                            </h5>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="fw-bold">Life-threatening Emergency:</span>
+                                <span class="text-danger fw-bold">911</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="fw-bold">Non-emergency Medical:</span>
+                                <span class="text-info fw-bold">311</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="fw-bold">System Support:</span>
+                                <span class="text-muted">+1-555-HELP</span>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h5 class="text-classical-red mb-3">
+                                <i class="fas fa-info-circle me-2"></i>Quick Links
+                            </h5>
+                            <div class="d-grid gap-2">
+                                <a href="{% url 'emergencies:landing' %}" class="btn btn-outline-classical btn-sm">
+                                    <i class="fas fa-ambulance me-2"></i>Emergency Request
+                                </a>
+                                <a href="{% url 'core:login' %}" class="btn btn-outline-classical btn-sm">
+                                    <i class="fas fa-sign-in-alt me-2"></i>Staff Login
+                                </a>
+                                <a href="{% url 'admin:index' %}" class="btn btn-outline-classical btn-sm">
+                                    <i class="fas fa-cog me-2"></i>System Admin
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+</style>
+{% endblock %}

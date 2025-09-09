@@ -1,0 +1,121 @@
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+from django.contrib.auth.models import AnonymousUser
+
+
+class DispatcherConsumer(AsyncWebsocketConsumer):
+    """WebSocket consumer for dispatcher dashboard real-time updates"""
+    
+    async def connect(self):
+        """Connect to dispatcher group"""
+        # Check if user is authenticated and is a dispatcher
+        if self.scope["user"] == AnonymousUser() or not self.scope["user"].is_dispatcher:
+            await self.close()
+            return
+        
+        self.group_name = 'dispatchers'
+        
+        # Join dispatcher group
+        await self.channel_layer.group_add(
+            self.group_name,
+            self.channel_name
+        )
+        
+        await self.accept()
+        
+        # Send initial data
+        await self.send_initial_data()
+    
+    async def disconnect(self, close_code):
+        """Leave dispatcher group"""
+        await self.channel_layer.group_discard(
+            self.group_name,
+            self.channel_name
+        )
+    
+    async def receive(self, text_data):
+        """Receive message from WebSocket"""
+        try:
+            text_data_json = json.loads(text_data)
+            message_type = text_data_json.get('type')
+            
+            if message_type == 'ping':
+                await self.send(text_data=json.dumps({'type': 'pong'}))
+            elif message_type == 'get_initial_data':
+                await self.send_initial_data()
+                
+        except json.JSONDecodeError:
+            pass
+    
+    async def emergency_update(self, event):
+        """Handle emergency call updates"""
+        await self.send(text_data=json.dumps({
+            'type': 'emergency_update',
+            'event': event['event'],
+            'data': event['data']
+        }))
+    
+    async def ambulance_update(self, event):
+        """Handle ambulance updates"""
+        await self.send(text_data=json.dumps({
+            'type': 'ambulance_update',
+            'event': event['event'],
+            'data': event['data']
+        }))
+    
+    async def send_initial_data(self):
+        """Send initial data to the dispatcher"""
+        try:
+            # Get active emergencies
+            emergencies = await self.get_active_emergencies()
+            
+            # Get ambulance fleet
+            ambulances = await self.get_ambulance_fleet()
+            
+            # Get hospitals
+            hospitals = await self.get_hospitals()
+            
+            await self.send(text_data=json.dumps({
+                'type': 'initial_data',
+                'data': {
+                    'emergencies': emergencies,
+                    'ambulances': ambulances,
+                    'hospitals': hospitals
+                }
+            }))
+        except Exception as e:
+            await self.send(text_data=json.dumps({
+                'type': 'error',
+                'message': str(e)
+            }))
+    
+    @database_sync_to_async
+    def get_active_emergencies(self):
+        """Get active emergency calls"""
+        from .models import EmergencyCall
+        from .serializers import EmergencyCallSerializer
+        
+        emergencies = EmergencyCall.objects.filter(
+            status__in=['RECEIVED', 'DISPATCHED', 'EN_ROUTE', 'ON_SCENE', 'TRANSPORTING']
+        ).order_by('-received_at')
+        
+        return EmergencyCallSerializer(emergencies, many=True).data
+    
+    @database_sync_to_async
+    def get_ambulance_fleet(self):
+        """Get ambulance fleet data"""
+        from dispatch.models import Ambulance
+        from dispatch.serializers import AmbulanceSerializer
+        
+        ambulances = Ambulance.objects.all()
+        return AmbulanceSerializer(ambulances, many=True).data
+    
+    @database_sync_to_async
+    def get_hospitals(self):
+        """Get hospital data"""
+        from dispatch.models import Hospital
+        from dispatch.serializers import HospitalSerializer
+        
+        hospitals = Hospital.objects.all()
+        return HospitalSerializer(hospitals, many=True).data
