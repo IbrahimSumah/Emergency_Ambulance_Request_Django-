@@ -36,18 +36,35 @@
 {% block extra_js %}
 <script>
 function updateStatus(status) {
+    const csrfToken = getCsrfToken();
+    
     fetch(`/api/emergencies/{{ active_call.id }}/status/`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
         body: JSON.stringify({ status })
-    }).then(r=>r.json()).then(d=>{
-        if (d.status) {
-            showToast(`Status updated to ${status}`, 'success');
-            location.reload();
+    }).then(response => {
+        if (!response.ok) {
+            return response.json().then(err => Promise.reject(err));
+        }
+        return response.json();
+    }).then(data => {
+        if (data.status) {
+            showToast(`Status updated to ${status.replace('_', ' ')}`, 'success');
+            setTimeout(() => location.reload(), 1000);
         } else {
             showToast('Failed to update status', 'error');
         }
-    }).catch(()=>showToast('Network error', 'error'));
+    }).catch(error => {
+        console.error('Error updating status:', error);
+        let errorMessage = 'Network error';
+        if (error && typeof error === 'object') {
+            errorMessage = error.detail || error.message || 'Failed to update status';
+        }
+        showToast(errorMessage, 'error');
+    });
 }
 </script>
 {% endblock %}

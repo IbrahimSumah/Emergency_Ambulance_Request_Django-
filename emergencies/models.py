@@ -1,5 +1,8 @@
+import os
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.conf import settings
 from core.models import User
 
 
@@ -39,12 +42,16 @@ class EmergencyCall(models.Model):
     caller_phone = models.CharField(max_length=15)
     emergency_type = models.CharField(max_length=20, choices=EMERGENCY_TYPE_CHOICES)
     description = models.TextField()
-    emergency_images = models.JSONField(default=list, blank=True, help_text="List of image URLs uploaded with the emergency")
+    emergency_images = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of dictionaries containing image metadata: {url: 'path/to/image.jpg', timestamp: 'ISO datetime'}"
+    )
     
     # Location information
     location_address = models.CharField(max_length=200)
-    latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     
     # Status and priority
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='RECEIVED')
@@ -81,12 +88,79 @@ class EmergencyCall(models.Model):
     def __str__(self):
         return f"Call {self.call_id} - {self.emergency_type} ({self.status})"
     
+    def clean(self):
+        """Validate model fields before saving"""
+        super().clean()
+        
+        # Validate phone number format
+        import re
+        if not re.match(r'^(\+232|0)?[0-9]{8,9}$', str(self.caller_phone or '')):
+            raise ValidationError({
+                'caller_phone': 'Phone number must be in format +232XXXXXXXX or 0XXXXXXXX'
+            })
+            
+        # Validate emergency_images format
+        if self.emergency_images and not isinstance(self.emergency_images, list):
+            raise ValidationError({
+                'emergency_images': 'Must be a list of image metadata dictionaries'
+            })
+            
+        for img in self.emergency_images or []:
+            if not isinstance(img, dict) or 'url' not in img:
+                raise ValidationError({
+                    'emergency_images': 'Each image must be a dictionary with at least a "url" key'
+                })
+    
     def save(self, *args, **kwargs):
         if not self.call_id:
             # Generate a unique call ID
             import uuid
             self.call_id = f"CALL-{uuid.uuid4().hex[:8].upper()}"
+        
+        # Clean and validate before saving
+        self.clean()
+        
+        # Round coordinates to 6 decimal places for precision control
+        if self.latitude is not None:
+            self.latitude = round(float(self.latitude), 6)
+        if self.longitude is not None:
+            self.longitude = round(float(self.longitude), 6)
+            
         super().save(*args, **kwargs)
+    
+    def add_emergency_image(self, image_file, user=None):
+        """Helper method to add an image to this emergency call"""
+        from django.utils import timezone
+        import os
+        from uuid import uuid4
+        
+        # Create directory if it doesn't exist
+        upload_dir = os.path.join('emergency_images', str(self.id))
+        os.makedirs(os.path.join(settings.MEDIA_ROOT, upload_dir), exist_ok=True)
+        
+        # Generate unique filename
+        ext = os.path.splitext(image_file.name)[1]
+        filename = f"{uuid4().hex}{ext}"
+        filepath = os.path.join(upload_dir, filename)
+        
+        # Save the file
+        with open(os.path.join(settings.MEDIA_ROOT, filepath), 'wb+') as dest:
+            for chunk in image_file.chunks():
+                dest.write(chunk)
+        
+        # Add to emergency_images
+        image_data = {
+            'url': os.path.join(settings.MEDIA_URL, filepath.replace('\\', '/')),
+            'timestamp': timezone.now().isoformat(),
+            'uploaded_by': str(user.id) if user else None
+        }
+        
+        if not self.emergency_images:
+            self.emergency_images = []
+        self.emergency_images.append(image_data)
+        self.save(update_fields=['emergency_images'])
+        
+        return image_data
     
     @property
     def is_active(self):

@@ -6,8 +6,8 @@ app_name = 'emergencies'
 urlpatterns = [
     # Web views
     path('emergency/', views.landing_page, name='landing'),
-    path('staff/dashboard/', views.dispatcher_dashboard, name='dispatcher_dashboard'),
-    path('staff/field/', views.paramedic_interface, name='paramedic_interface'),
+    path('dashboard/', views.dispatcher_dashboard, name='dispatcher_dashboard'),
+    path('paramedic/', views.paramedic_interface, name='paramedic_interface'),
     
     # API endpoints
     path('api/emergencies/', views.EmergencyCallListCreateView.as_view(), name='emergency_list_create'),

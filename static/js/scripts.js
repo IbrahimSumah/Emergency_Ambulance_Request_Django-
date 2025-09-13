@@ -142,20 +142,25 @@ function createNewEmergencyModal() {
 						<button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 					</div>
 					<div class="modal-body">
-						<form id="newEmergencyForm">
+						<form id="newEmergencyForm" class="needs-validation" novalidate>
 							<div class="row">
 								<div class="col-md-6">
 									<div class="mb-3">
-										<label class="form-label">Caller Name</label>
+										<label class="form-label">Caller Name *</label>
 										<input type="text" class="form-control" name="caller_name" required>
+										<div class="invalid-feedback">Please provide caller name.</div>
 									</div>
 									<div class="mb-3">
-										<label class="form-label">Phone Number</label>
-										<input type="tel" class="form-control" name="caller_phone" required>
+										<label class="form-label">Phone Number *</label>
+										<div class="input-group">
+											<span class="input-group-text">+232</span>
+											<input type="tel" class="form-control" name="caller_phone" pattern="[0-9]{8,9}" required>
+										</div>
+										<div class="invalid-feedback">Please provide a valid phone number.</div>
 									</div>
 									<div class="mb-3">
-										<label class="form-label">Emergency Type</label>
-										<select class="form-control" name="emergency_type" required>
+										<label class="form-label">Emergency Type *</label>
+										<select class="form-select" name="emergency_type" required>
 											<option value="">Select Type</option>
 											<option value="MEDICAL">Medical Emergency</option>
 											<option value="TRAUMA">Trauma</option>
@@ -165,16 +170,19 @@ function createNewEmergencyModal() {
 											<option value="FIRE">Fire Emergency</option>
 											<option value="OTHER">Other</option>
 										</select>
+										<div class="invalid-feedback">Please select emergency type.</div>
 									</div>
 								</div>
 								<div class="col-md-6">
 									<div class="mb-3">
-										<label class="form-label">Location Address</label>
+										<label class="form-label">Location Address *</label>
 										<textarea class="form-control" name="location_address" rows="2" required></textarea>
+										<div class="invalid-feedback">Please provide location address.</div>
 									</div>
 									<div class="mb-3">
-										<label class="form-label">Description</label>
+										<label class="form-label">Description *</label>
 										<textarea class="form-control" name="description" rows="4" required></textarea>
+										<div class="invalid-feedback">Please provide emergency description.</div>
 									</div>
 								</div>
 							</div>
@@ -198,33 +206,72 @@ async function submitNewEmergency() {
 		const form = document.getElementById('newEmergencyForm');
 		const formData = new FormData(form);
 		
+		// Validate form
+		if (!form.checkValidity()) {
+			form.classList.add('was-validated');
+			return;
+		}
+		
+		// Convert FormData to object and validate required fields
+		const data = Object.fromEntries(formData);
+		
+		// Validate required fields
+		if (!data.caller_name || !data.caller_phone || !data.emergency_type || !data.location_address || !data.description) {
+			showToast('Please fill in all required fields', 'error');
+			return;
+		}
+		
+		// Format phone number if it doesn't start with +
+		if (data.caller_phone && !data.caller_phone.startsWith('+')) {
+			data.caller_phone = `+232${data.caller_phone}`;
+		}
+		
 		const response = await fetch('/api/emergencies/', {
 			method: 'POST',
 			headers: {
 				'X-CSRFToken': csrfToken(),
 				'Content-Type': 'application/json',
 			},
-			body: JSON.stringify(Object.fromEntries(formData))
+			body: JSON.stringify(data)
 		});
 		
 		if (response.ok) {
-			const data = await response.json();
-			showToast(`Emergency call ${data.call_id} created successfully`, 'success');
+			const responseData = await response.json();
+			showToast(`Emergency call ${responseData.call_id} created successfully`, 'success');
 			
 			// Close modal
 			const modal = bootstrap.Modal.getInstance(document.getElementById('newEmergencyModal'));
-			modal.hide();
+			if (modal) {
+				modal.hide();
+			}
 			
 			// Refresh page or update dashboard
 			if (window.location.pathname.includes('dashboard')) {
 				location.reload();
 			}
 		} else {
-			throw new Error('Failed to create emergency call');
+			const errorData = await response.json();
+			let errorMessage = 'Failed to create emergency call';
+			
+			if (errorData && typeof errorData === 'object') {
+				const errors = [];
+				for (const [field, messages] of Object.entries(errorData)) {
+					if (Array.isArray(messages)) {
+						errors.push(`${field}: ${messages.join(', ')}`);
+					} else {
+						errors.push(`${field}: ${messages}`);
+					}
+				}
+				if (errors.length > 0) {
+					errorMessage = errors.join('; ');
+				}
+			}
+			
+			showToast(errorMessage, 'error');
 		}
 	} catch (error) {
 		console.error('Error creating emergency call:', error);
-		showToast('Error creating emergency call', 'error');
+		showToast('Error creating emergency call: ' + error.message, 'error');
 	}
 }
 

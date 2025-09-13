@@ -22,9 +22,77 @@ class EmergencyCallListCreateView(generics.ListCreateAPIView):
             return EmergencyCallCreateSerializer
         return EmergencyCallSerializer
     
-    def perform_create(self, serializer):
-        """Create a new emergency call"""
+    def create(self, request, *args, **kwargs):
+        """Handle emergency call creation with optional image uploads"""
+        # Handle JSON data
+        if request.content_type == 'application/json':
+            data = request.data.copy()
+            
+            # Process any base64 encoded images if present
+            if 'emergency_images' in data and isinstance(data['emergency_images'], list):
+                # Convert base64 images to files and upload them
+                processed_images = []
+                for img_data in data['emergency_images']:
+                    if isinstance(img_data, str) and img_data.startswith('data:image'):
+                        # This is a base64 encoded image
+                        try:
+                            from django.core.files.base import ContentFile
+                            import base64
+                            import uuid
+                            # Extract the base64 data
+                            format, imgstr = img_data.split(';base64,')
+                            ext = format.split('/')[-1]
+                            # Create a file-like object
+                            file_content = ContentFile(
+                                base64.b64decode(imgstr),
+                                name=f"emergency_img_{uuid.uuid4()}.{ext}"
+                            )
+                            # Save the file temporarily
+                            processed_images.append(file_content)
+                        except Exception as e:
+                            logger.error(f"Error processing base64 image: {str(e)}")
+                            continue
+                
+                # Replace base64 data with placeholder URLs that will be updated after save
+                data['emergency_images'] = [{'url': f'temp_{i}'} for i in range(len(processed_images))]
+            
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer, processed_images)
+            
+        # Handle form data (for direct file uploads)
+        elif 'multipart/form-data' in request.content_type:
+            data = request.data.copy()
+            files = request.FILES.getlist('images', [])
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            emergency_call = serializer.save()
+            
+            # Process uploaded files
+            for file in files:
+                emergency_call.add_emergency_image(file)
+                
+            # Send notification after all files are processed
+            self.send_notification('NEW_EMERGENCY', emergency_call)
+            
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        
+        else:
+            return Response(
+                {'error': 'Unsupported content type'}, 
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+            )
+    
+    def perform_create(self, serializer, uploaded_files=None):
+        """Create a new emergency call and handle file uploads"""
         emergency_call = serializer.save()
+        
+        # Process any uploaded files
+        if uploaded_files:
+            for file in uploaded_files:
+                emergency_call.add_emergency_image(file)
+        
         # Send real-time notification
         self.send_notification('NEW_EMERGENCY', emergency_call)
     

@@ -1,3 +1,4 @@
+import re
 from rest_framework import serializers
 from .models import EmergencyCall
 from dispatch.models import Ambulance
@@ -37,6 +38,34 @@ class EmergencyCallCreateSerializer(serializers.ModelSerializer):
             'caller_name', 'caller_phone', 'emergency_type', 'description',
             'location_address', 'latitude', 'longitude', 'emergency_images'
         ]
+    
+    def validate(self, data):
+        # Ensure required fields are present
+        required_fields = ['caller_name', 'caller_phone', 'emergency_type', 'description', 'location_address']
+        for field in required_fields:
+            if not data.get(field):
+                raise serializers.ValidationError(f"{field} is required")
+        
+        # Validate phone number format
+        phone = data.get('caller_phone', '')
+        # Accept both +232XXXXXXXX and XXXXXXXXX formats
+        if not re.match(r'^(\+232|0)?[0-9]{8,9}$', phone):
+            raise serializers.ValidationError("Phone number must be in format +232XXXXXXXX or 0XXXXXXXX")
+        
+        # Validate and round coordinates if provided
+        if 'latitude' in data and data['latitude'] is not None:
+            lat = float(data['latitude'])
+            if lat < -90 or lat > 90:
+                raise serializers.ValidationError("Latitude must be between -90 and 90 degrees")
+            data['latitude'] = round(lat, 6)
+        
+        if 'longitude' in data and data['longitude'] is not None:
+            lng = float(data['longitude'])
+            if lng < -180 or lng > 180:
+                raise serializers.ValidationError("Longitude must be between -180 and 180 degrees")
+            data['longitude'] = round(lng, 6)
+        
+        return data
 
 
 class EmergencyCallStatusUpdateSerializer(serializers.ModelSerializer):

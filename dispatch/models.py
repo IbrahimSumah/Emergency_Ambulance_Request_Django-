@@ -27,8 +27,8 @@ class Ambulance(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
     
     # Location information
-    current_latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
-    current_longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
+    current_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    current_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     last_location_update = models.DateTimeField(null=True, blank=True)
     
     # Assignment information
@@ -67,8 +67,9 @@ class Ambulance(models.Model):
     
     def update_location(self, latitude, longitude):
         """Update the ambulance's current location"""
-        self.current_latitude = latitude
-        self.current_longitude = longitude
+        # Round coordinates to 6 decimal places for precision control
+        self.current_latitude = round(float(latitude), 6)
+        self.current_longitude = round(float(longitude), 6)
         from django.utils import timezone
         self.last_location_update = timezone.now()
         self.save()
@@ -93,8 +94,8 @@ class Hospital(models.Model):
     
     name = models.CharField(max_length=200)
     address = models.CharField(max_length=300)
-    latitude = models.DecimalField(max_digits=10, decimal_places=7)
-    longitude = models.DecimalField(max_digits=10, decimal_places=7)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6)
     phone_number = models.CharField(max_length=15, blank=True)
     
     # Capacity information

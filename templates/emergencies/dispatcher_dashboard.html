@@ -65,6 +65,40 @@
     </div>
   </div>
 </div>
+
+<!-- Dispatch Modal -->
+<div class="modal fade" id="dispatchModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Dispatch Ambulance</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="dispatchCallInfo" class="mb-3"></div>
+        <form id="dispatchForm">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label">Select Ambulance *</label>
+            <select class="form-select" id="ambulanceSelect" required>
+              <option value="">Choose available ambulance...</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Assign Paramedic (Optional)</label>
+            <select class="form-select" id="paramedicSelect">
+              <option value="">Auto-assign or select...</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" onclick="dispatchAmbulance()">Dispatch</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -89,19 +123,35 @@ function renderQueue(filter) {
                    : filter === 'active' ? values.filter(c=>['DISPATCHED','EN_ROUTE','ON_SCENE'].includes(c.status))
                    : values.filter(c=>c.status==='TRANSPORTING');
     filtered.sort((a,b)=>new Date(b.received_at)-new Date(a.received_at));
+    
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="text-muted text-center py-3"><i class="fas fa-inbox me-2"></i>No calls in this category</div>';
+        return;
+    }
+    
     for (const call of filtered) {
         const div = document.createElement('div');
         div.className = 'card mb-2 emergency-card';
+        div.style.cursor = 'pointer';
+        div.setAttribute('data-call-id', call.id);
         div.innerHTML = `<div class="card-body py-2">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <div class="fw-bold">${call.call_id} • ${call.emergency_type_display}</div>
+                    <div class="fw-bold">${call.call_id} • ${call.emergency_type_display || call.emergency_type}</div>
                     <div class="text-muted small"><i class="fas fa-location-dot me-1"></i>${call.location_address}</div>
+                    <div class="text-muted small"><i class="fas fa-clock me-1"></i>${new Date(call.received_at).toLocaleTimeString()}</div>
                 </div>
-                <div>${statusBadge(call.status)}</div>
+                <div>
+                    ${statusBadge(call.status)}
+                    ${call.status === 'RECEIVED' ? '<button class="btn btn-sm btn-primary ms-1" onclick="showDispatchModal(' + call.id + ')"><i class="fas fa-truck"></i></button>' : ''}
+                </div>
             </div>
         </div>`;
-        div.onclick = ()=> focusCall(call);
+        div.onclick = (e) => {
+            if (!e.target.closest('button')) {
+                focusCall(call);
+            }
+        };
         container.appendChild(div);
     }
 }
@@ -204,6 +254,87 @@ function connectWS() {
     };
     ws.onerror = () => showToast('WebSocket error', 'warning');
     ws.onclose = () => setTimeout(connectWS, 3000);
+}
+
+let selectedCallId = null;
+
+function showDispatchModal(callId) {
+    selectedCallId = callId;
+    const call = callsById.get(callId);
+    if (!call) return;
+    
+    // Populate call info
+    document.getElementById('dispatchCallInfo').innerHTML = `
+        <div class="alert alert-info">
+            <strong>${call.call_id}</strong> - ${call.emergency_type_display || call.emergency_type}<br>
+            <small><i class="fas fa-location-dot me-1"></i>${call.location_address}</small>
+        </div>
+    `;
+    
+    // Populate ambulance options
+    const ambulanceSelect = document.getElementById('ambulanceSelect');
+    ambulanceSelect.innerHTML = '<option value="">Choose available ambulance...</option>';
+    Array.from(ambulancesById.values()).filter(a => a.status === 'AVAILABLE').forEach(amb => {
+        ambulanceSelect.innerHTML += `<option value="${amb.id}">Unit ${amb.unit_number} (${amb.unit_type_display || amb.unit_type})</option>`;
+    });
+    
+    // Populate paramedic options
+    const paramedicSelect = document.getElementById('paramedicSelect');
+    paramedicSelect.innerHTML = '<option value="">Auto-assign or select...</option>';
+    // Note: We'd need to fetch paramedics from API in real implementation
+    
+    new bootstrap.Modal(document.getElementById('dispatchModal')).show();
+}
+
+function dispatchAmbulance() {
+    const ambulanceId = document.getElementById('ambulanceSelect').value;
+    const paramedicId = document.getElementById('paramedicSelect').value;
+    
+    if (!ambulanceId) {
+        showToast('Please select an ambulance', 'error');
+        return;
+    }
+    
+    const data = {
+        emergency_call_id: selectedCallId,
+        ambulance_id: parseInt(ambulanceId),
+        paramedic_id: paramedicId ? parseInt(paramedicId) : null
+    };
+    
+    fetch('/dispatch/api/dispatch/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify(data)
+    }).then(response => {
+        if (!response.ok) {
+            return response.json().then(err => Promise.reject(err));
+        }
+        return response.json();
+    }).then(result => {
+        showToast('Ambulance dispatched successfully', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('dispatchModal')).hide();
+        // Data will be updated via WebSocket
+    }).catch(error => {
+        console.error('Dispatch error:', error);
+        let errorMessage = 'Failed to dispatch ambulance';
+        if (error && typeof error === 'object') {
+            const errors = [];
+            for (const [field, messages] of Object.entries(error)) {
+                if (Array.isArray(messages)) {
+                    errors.push(`${field}: ${messages.join(', ')}`);
+                } else {
+                    errors.push(`${field}: ${messages}`);
+                }
+            }
+            if (errors.length > 0) {
+                errorMessage = errors.join('; ');
+            }
+        }
+        showToast(errorMessage, 'error');
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
