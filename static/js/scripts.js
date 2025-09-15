@@ -22,8 +22,17 @@ window.addEventListener('error', function(e) {
 
 // Helper to fetch JSON with CSRF
 function csrfToken() {
+	// Prefer form token if present
 	const el = document.querySelector('[name=csrfmiddlewaretoken]');
-	return el ? el.value : '';
+	if (el && el.value) return el.value;
+	// Fallback to cookie (Django sets csrftoken cookie)
+	const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+	return match ? decodeURIComponent(match[1]) : '';
+}
+
+// Back-compat alias used by some templates
+function getCsrfToken() {
+	return csrfToken();
 }
 
 async function fetchJson(url, opts = {}) {

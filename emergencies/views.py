@@ -1,14 +1,19 @@
 from rest_framework import generics, status
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import render
 from django.core.files.storage import default_storage
 from django.conf import settings
+import logging
 import os
 import uuid
 from .models import EmergencyCall
 from .serializers import EmergencyCallSerializer, EmergencyCallCreateSerializer, EmergencyCallStatusUpdateSerializer
+
+
+logger = logging.getLogger(__name__)
 
 
 class EmergencyCallListCreateView(generics.ListCreateAPIView):
@@ -16,6 +21,7 @@ class EmergencyCallListCreateView(generics.ListCreateAPIView):
     
     queryset = EmergencyCall.objects.all()
     permission_classes = [AllowAny]  # Public API for emergency calls
+    throttle_classes = [AnonRateThrottle]
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -58,7 +64,15 @@ class EmergencyCallListCreateView(generics.ListCreateAPIView):
             
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
-            self.perform_create(serializer, processed_images)
+            emergency_call = self.perform_create(serializer, processed_images)
+
+            # Return FULL representation including call_id
+            headers = self.get_success_headers({})
+            return Response(
+                EmergencyCallSerializer(emergency_call).data,
+                status=status.HTTP_201_CREATED,
+                headers=headers,
+            )
             
         # Handle form data (for direct file uploads)
         elif 'multipart/form-data' in request.content_type:
@@ -75,8 +89,13 @@ class EmergencyCallListCreateView(generics.ListCreateAPIView):
             # Send notification after all files are processed
             self.send_notification('NEW_EMERGENCY', emergency_call)
             
-            headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+            # Return FULL representation including call_id
+            headers = self.get_success_headers({})
+            return Response(
+                EmergencyCallSerializer(emergency_call).data,
+                status=status.HTTP_201_CREATED,
+                headers=headers,
+            )
         
         else:
             return Response(
@@ -95,6 +114,8 @@ class EmergencyCallListCreateView(generics.ListCreateAPIView):
         
         # Send real-time notification
         self.send_notification('NEW_EMERGENCY', emergency_call)
+
+        return emergency_call
     
     def send_notification(self, event_type, emergency_call):
         """Send WebSocket notification"""
@@ -113,6 +134,16 @@ class EmergencyCallListCreateView(generics.ListCreateAPIView):
                         'data': EmergencyCallSerializer(emergency_call).data
                     }
                 )
+                # Notify assigned paramedic if present
+                if emergency_call.assigned_paramedic_id:
+                    async_to_sync(channel_layer.group_send)(
+                        f'paramedic_{emergency_call.assigned_paramedic_id}',
+                        {
+                            'type': 'emergency_update',
+                            'event': event_type,
+                            'data': EmergencyCallSerializer(emergency_call).data
+                        }
+                    )
         except Exception as e:
             # Log the error but don't fail the request
             import logging
@@ -151,6 +182,15 @@ class EmergencyCallDetailView(generics.RetrieveUpdateAPIView):
                         'data': EmergencyCallSerializer(emergency_call).data
                     }
                 )
+                if emergency_call.assigned_paramedic_id:
+                    async_to_sync(channel_layer.group_send)(
+                        f'paramedic_{emergency_call.assigned_paramedic_id}',
+                        {
+                            'type': 'emergency_update',
+                            'event': event_type,
+                            'data': EmergencyCallSerializer(emergency_call).data
+                        }
+                    )
         except Exception as e:
             # Log the error but don't fail the request
             import logging
@@ -222,6 +262,17 @@ def active_emergencies(request):
     
     serializer = EmergencyCallSerializer(queryset, many=True)
     return Response(serializer.data)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_active_call(request):
+    """Return the active call for the authenticated paramedic (if any)."""
+    active_call = EmergencyCall.objects.filter(
+        assigned_paramedic=request.user,
+        status__in=['DISPATCHED', 'EN_ROUTE', 'ON_SCENE', 'TRANSPORTING']
+    ).order_by('-received_at').first()
+    if not active_call:
+        return Response({}, status=status.HTTP_204_NO_CONTENT)
+    return Response(EmergencyCallSerializer(active_call).data)
 
 
 def landing_page(request):

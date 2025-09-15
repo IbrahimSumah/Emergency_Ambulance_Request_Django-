@@ -42,9 +42,9 @@
                     <div class="mt-3">
                         <h5>Emergency Images</h5>
                         <div class="row">
-                            {% for image_url in call.emergency_images %}
+                            {% for image in call.emergency_images %}
                             <div class="col-md-3 mb-2">
-                                <img src="{{ image_url }}" class="img-thumbnail" alt="Emergency Image">
+                                <img src="{{ image.url|default:image }}" class="img-thumbnail" alt="Emergency Image">
                             </div>
                             {% endfor %}
                         </div>
@@ -100,20 +100,17 @@
 </div>
 
 <script>
-// Initialize map if coordinates are available
+// Initialize map with Leaflet (OpenStreetMap)
 {% if call.latitude and call.longitude %}
-function initMap() {
-    const location = { lat: {{ call.latitude }}, lng: {{ call.longitude }} };
-    const map = new google.maps.Map(document.getElementById("map"), {
-        zoom: 15,
-        center: location,
-    });
-    const marker = new google.maps.Marker({
-        position: location,
-        map: map,
-        title: "Emergency Location"
-    });
-}
+document.addEventListener('DOMContentLoaded', function() {
+    var map = L.map('map').setView([{{ call.latitude }}, {{ call.longitude }}], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    L.marker([{{ call.latitude }}, {{ call.longitude }}]).addTo(map)
+        .bindPopup('Emergency Location').openPopup();
+});
 {% endif %}
 </script>
 {% endblock %}

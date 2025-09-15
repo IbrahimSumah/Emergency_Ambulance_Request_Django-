@@ -119,3 +119,35 @@ class DispatcherConsumer(AsyncWebsocketConsumer):
         
         hospitals = Hospital.objects.all()
         return HospitalSerializer(hospitals, many=True).data
+
+
+class ParamedicConsumer(AsyncWebsocketConsumer):
+    """WebSocket consumer for paramedic field interface updates"""
+    async def connect(self):
+        user = self.scope.get("user")
+        if user == AnonymousUser() or not getattr(user, 'is_paramedic', False):
+            await self.close()
+            return
+        self.group_name = f"paramedic_{user.id}"
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        # Paramedic client can ping to keepalive
+        try:
+            data = json.loads(text_data)
+            if data.get('type') == 'ping':
+                await self.send(text_data=json.dumps({'type': 'pong'}))
+        except Exception:
+            pass
+
+    async def emergency_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'emergency_update',
+            'event': event['event'],
+            'data': event['data']
+        }))

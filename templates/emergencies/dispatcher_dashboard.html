@@ -23,7 +23,10 @@
         <!-- Center Panel: Live Map -->
         <div class="col-lg-6">
             <div class="card h-100">
-                <div class="card-header fw-bold"><i class="fas fa-map me-2"></i>Live Map</div>
+                <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-map me-2"></i>Live Map</span>
+                    <span id="wsIndicator" class="badge bg-secondary">WS: unknown</span>
+                </div>
                 <div class="card-body p-0">
                     <div id="map" class="map-container"></div>
                 </div>
@@ -106,6 +109,8 @@
 let map, emergencyLayer, ambulanceLayer, ws;
 const callsById = new Map();
 const ambulancesById = new Map();
+let hospitals = [];
+let pollingTimer = null;
 
 function statusBadge(status) {
     const color = {
@@ -162,8 +167,12 @@ function initMap() {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
-    emergencyLayer = L.layerGroup().addTo(map);
-    ambulanceLayer = L.layerGroup().addTo(map);
+    emergencyLayer = L.markerClusterGroup ? L.markerClusterGroup() : L.layerGroup();
+    ambulanceLayer = L.markerClusterGroup ? L.markerClusterGroup() : L.layerGroup();
+    map.addLayer(emergencyLayer);
+    map.addLayer(ambulanceLayer);
+    // Hospital markers layer
+    window.hospitalLayer = L.layerGroup().addTo(map);
 }
 
 function callMarker(call) {
@@ -193,6 +202,7 @@ function ambulanceIconForStatus(status) {
 function renderLayers() {
     emergencyLayer.clearLayers();
     ambulanceLayer.clearLayers();
+    if (window.hospitalLayer) window.hospitalLayer.clearLayers();
     for (const call of callsById.values()) {
         if (['RECEIVED','DISPATCHED','EN_ROUTE','ON_SCENE','TRANSPORTING'].includes(call.status)) {
             if (call.latitude && call.longitude) emergencyLayer.addLayer(callMarker(call));
@@ -205,6 +215,18 @@ function renderLayers() {
             );
             ambulanceLayer.addLayer(marker);
         }
+    }
+    // Render hospitals
+    if (window.hospitalLayer && hospitals && hospitals.length) {
+        hospitals.forEach(h => {
+            if (h.latitude && h.longitude) {
+                const icon = L.divIcon({ className: 'hospital-icon', html: `<span class='badge bg-dark'>H</span>` });
+                const m = L.marker([h.latitude, h.longitude], { icon }).bindPopup(
+                    `<div class='small'><div class='fw-bold'>${h.name}</div><div>${h.address||''}</div><div>Capacity: ${h.emergency_capacity_display||h.emergency_capacity}</div></div>`
+                );
+                window.hospitalLayer.addLayer(m);
+            }
+        });
     }
 }
 
@@ -233,18 +255,42 @@ function renderFleetList() {
     }
 }
 
+function renderHospitals() {
+    const el = document.getElementById('hospitalStatus');
+    if (!el) return;
+    if (!hospitals || hospitals.length === 0) {
+        el.textContent = 'No hospital data';
+        return;
+    }
+    const capacityColor = (cap) => ({
+        LOW: 'success',
+        MODERATE: 'warning',
+        HIGH: 'danger',
+        FULL: 'secondary'
+    })[cap] || 'secondary';
+    el.innerHTML = '';
+    hospitals.forEach(h => {
+        const div = document.createElement('div');
+        div.className = 'd-flex justify-content-between align-items-center py-1';
+        const badge = `<span class="badge bg-${capacityColor(h.emergency_capacity)}">${h.emergency_capacity_display || h.emergency_capacity}</span>`;
+        const beds = (h.available_beds != null && h.total_beds != null) ? ` <small class="text-muted">(${h.available_beds}/${h.total_beds} beds)</small>` : '';
+        div.innerHTML = `<span class='fw-semibold'>${h.name}</span><span>${badge}${beds}</span>`;
+        el.appendChild(div);
+    });
+}
+
 function connectWS() {
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${scheme}://${location.host}/ws/dispatchers/`);
-    ws.onopen = () => ws.send(JSON.stringify({type:'get_initial_data'}));
+    ws.onopen = () => { updateWsIndicator('connected'); ws.send(JSON.stringify({type:'get_initial_data'})); };
     ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === 'initial_data') {
             callsById.clear(); ambulancesById.clear();
             for (const c of msg.data.emergencies) callsById.set(c.id, c);
             for (const a of msg.data.ambulances) ambulancesById.set(a.id, a);
-            renderQueue('pending'); renderLayers(); renderFleetList();
-            document.getElementById('hospitalStatus').textContent = 'Moderate Load';
+            hospitals = msg.data.hospitals || [];
+            renderQueue('pending'); renderLayers(); renderFleetList(); renderHospitals();
         } else if (msg.type === 'emergency_update') {
             const c = msg.data; callsById.set(c.id, c); renderQueue('pending'); renderLayers();
             showToast(`Emergency ${c.call_id}: ${msg.event.replace('_',' ')}`, 'info');
@@ -252,8 +298,16 @@ function connectWS() {
             const a = msg.data; ambulancesById.set(a.id, a); renderLayers(); renderFleetList();
         }
     };
-    ws.onerror = () => showToast('WebSocket error', 'warning');
-    ws.onclose = () => setTimeout(connectWS, 3000);
+    ws.onerror = () => {
+        updateWsIndicator('error');
+        showToast('WebSocket error', 'warning');
+        startPollingFallback();
+    };
+    ws.onclose = () => {
+        updateWsIndicator('closed');
+        startPollingFallback();
+        setTimeout(connectWS, 10000);
+    };
 }
 
 let selectedCallId = null;
@@ -282,6 +336,27 @@ function showDispatchModal(callId) {
     const paramedicSelect = document.getElementById('paramedicSelect');
     paramedicSelect.innerHTML = '<option value="">Auto-assign or select...</option>';
     // Note: We'd need to fetch paramedics from API in real implementation
+
+    // Add hospital selector dynamically if not present
+    let hospitalSelect = document.getElementById('hospitalSelect');
+    if (!hospitalSelect) {
+        const form = document.getElementById('dispatchForm');
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mb-3';
+        wrapper.innerHTML = `
+            <label class="form-label">Destination Hospital (Optional)</label>
+            <select class="form-select" id="hospitalSelect">
+                <option value="">Select destination...</option>
+            </select>
+            <div class="form-text">Filtered by capacity and specialties when available.</div>
+        `;
+        form.appendChild(wrapper);
+        hospitalSelect = document.getElementById('hospitalSelect');
+    }
+    hospitalSelect.innerHTML = '<option value="">Select destination...</option>';
+    (hospitals||[]).forEach(h => {
+        hospitalSelect.innerHTML += `<option value="${h.id}">${h.name} (${h.emergency_capacity_display||h.emergency_capacity})</option>`;
+    });
     
     new bootstrap.Modal(document.getElementById('dispatchModal')).show();
 }
@@ -289,6 +364,7 @@ function showDispatchModal(callId) {
 function dispatchAmbulance() {
     const ambulanceId = document.getElementById('ambulanceSelect').value;
     const paramedicId = document.getElementById('paramedicSelect').value;
+    const hospitalId = document.getElementById('hospitalSelect') ? document.getElementById('hospitalSelect').value : '';
     
     if (!ambulanceId) {
         showToast('Please select an ambulance', 'error');
@@ -300,6 +376,7 @@ function dispatchAmbulance() {
         ambulance_id: parseInt(ambulanceId),
         paramedic_id: paramedicId ? parseInt(paramedicId) : null
     };
+    if (hospitalId) data.hospital_id = parseInt(hospitalId);
     
     fetch('/dispatch/api/dispatch/', {
         method: 'POST',
@@ -349,7 +426,81 @@ document.addEventListener('DOMContentLoaded', () => {
             renderQueue(s);
         });
     });
+    // Enable drop from fleet onto map to pick nearest pending call
+    const mapEl = document.getElementById('map');
+    mapEl.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+    mapEl.addEventListener('drop', (e)=>{
+        e.preventDefault();
+        const ambIdText = e.dataTransfer.getData('text/plain');
+        const ambId = parseInt(ambIdText);
+        if (!ambId) return;
+        // Get map latlng from event using Leaflet
+        const rect = mapEl.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const latlng = map.containerPointToLatLng(L.point(x, y));
+        // Find nearest RECEIVED call within ~5km
+        let best = null; let bestD = Infinity;
+        const toRad = (v)=> v*Math.PI/180;
+        const dist = (a,b)=>{
+            const R=6371000; const dLat=toRad(b.lat-a.lat); const dLng=toRad(b.lng-a.lng);
+            const la=toRad(a.lat); const lb=toRad(b.lat);
+            const aa=Math.sin(dLat/2)**2+Math.cos(la)*Math.cos(lb)*Math.sin(dLng/2)**2;
+            return 2*R*Math.asin(Math.sqrt(aa));
+        };
+        callsById.forEach((c)=>{
+            if (c.status==='RECEIVED' && c.latitude && c.longitude) {
+                const d = dist({lat:latlng.lat,lng:latlng.lng},{lat:c.latitude,lng:c.longitude});
+                if (d < bestD) { best = c; bestD = d; }
+            }
+        });
+        if (best && bestD <= 5000) {
+            selectedCallId = best.id;
+            showDispatchModal(best.id);
+            const sel = document.getElementById('ambulanceSelect');
+            if (sel) sel.value = String(ambId);
+            showToast('Prepared dispatch to nearest call', 'info');
+        } else {
+            showToast('No nearby pending call found at drop point', 'warning');
+        }
+    });
 });
+
+function updateWsIndicator(state) {
+    const el = document.getElementById('wsIndicator');
+    if (!el) return;
+    const styles = { connected: 'bg-success', error: 'bg-warning', closed: 'bg-danger', unknown: 'bg-secondary' };
+    el.className = 'badge ' + (styles[state] || styles.unknown);
+    el.textContent = 'WS: ' + state;
+}
+
+function startPollingFallback() {
+    if (pollingTimer) return;
+    showToast('Realtime disabled, switching to periodic updates', 'info');
+    const fetchAll = () => {
+        Promise.all([
+            fetch('/api/emergencies/active/?status=pending').then(r=>r.ok?r.json():[]),
+            fetch('/api/emergencies/active/?status=active').then(r=>r.ok?r.json():[]),
+            fetch('/api/emergencies/active/?status=transporting').then(r=>r.ok?r.json():[]),
+            fetch('/dispatch/api/ambulances/').then(r=>r.ok?r.json():[]),
+            fetch('/dispatch/api/hospitals/').then(r=>r.ok?r.json():[])
+        ]).then(([pending, active, transporting, ambulances, hospitalsResp]) => {
+            callsById.clear();
+            [...(pending||[]), ...(active||[]), ...(transporting||[])].forEach(c => callsById.set(c.id, c));
+            ambulancesById.clear();
+            (ambulances||[]).forEach(a => ambulancesById.set(a.id, a));
+            hospitals = hospitalsResp || [];
+            const activeTab = document.querySelector('#queueTabs .nav-link.active');
+            const filter = activeTab ? activeTab.dataset.status : 'pending';
+            renderQueue(filter);
+            renderLayers();
+            renderFleetList();
+            renderHospitals();
+        }).catch(() => {});
+    };
+    fetchAll();
+    pollingTimer = setInterval(fetchAll, 10000);
+}
 </script>
 {% endblock %}
 

@@ -65,6 +65,7 @@ class DispatchSerializer(serializers.Serializer):
     emergency_call_id = serializers.IntegerField()
     ambulance_id = serializers.IntegerField()
     paramedic_id = serializers.IntegerField(required=False)
+    hospital_id = serializers.IntegerField(required=False)
     
     def validate_emergency_call_id(self, value):
         """Validate emergency call exists and is in correct status"""
@@ -97,4 +98,14 @@ class DispatchSerializer(serializers.Serializer):
                 return value
             except User.DoesNotExist:
                 raise serializers.ValidationError("Paramedic not found")
+        return value
+
+    def validate_hospital_id(self, value):
+        if value:
+            from .models import Hospital
+            try:
+                Hospital.objects.get(id=value)
+                return value
+            except Hospital.DoesNotExist:
+                raise serializers.ValidationError("Hospital not found")
         return value

@@ -14,5 +14,6 @@ urlpatterns = [
     path('api/emergencies/<int:pk>/', views.EmergencyCallDetailView.as_view(), name='emergency_detail'),
     path('api/emergencies/<int:pk>/status/', views.update_emergency_status, name='update_emergency_status'),
     path('api/emergencies/active/', views.active_emergencies, name='active_emergencies'),
+    path('api/emergencies/my-active/', views.my_active_call, name='my_active_call'),
     path('api/emergencies/upload-image/', views.upload_emergency_image, name='upload_emergency_image'),
 ]

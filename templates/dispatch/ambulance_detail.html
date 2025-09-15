@@ -93,21 +93,17 @@
 </div>
 
 <script>
-// Initialize map if coordinates are available
+// Initialize map with Leaflet (OpenStreetMap)
 {% if ambulance.latitude and ambulance.longitude %}
-function initMap() {
-    const location = { lat: {{ ambulance.latitude }}, lng: {{ ambulance.longitude }} };
-    const map = new google.maps.Map(document.getElementById("map"), {
-        zoom: 13,
-        center: location,
-    });
-    const marker = new google.maps.Marker({
-        position: location,
-        map: map,
-        title: "{{ ambulance.unit_number }} Location",
-        icon: '/static/images/ambulance-marker.png'
-    });
-}
+document.addEventListener('DOMContentLoaded', function() {
+    var map = L.map('map').setView([{{ ambulance.latitude }}, {{ ambulance.longitude }}], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    L.marker([{{ ambulance.latitude }}, {{ ambulance.longitude }}]).addTo(map)
+        .bindPopup('{{ ambulance.unit_number }} Location');
+});
 {% endif %}
 
 // Quick action functions

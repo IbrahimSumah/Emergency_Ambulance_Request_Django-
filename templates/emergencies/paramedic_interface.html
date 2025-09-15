@@ -6,12 +6,15 @@
 <div class="container py-3">
     <div class="card shadow-sm">
         <div class="card-body">
-            <h5 class="card-title mb-3"><i class="fas fa-mobile-alt me-2"></i>Active Call</h5>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0"><i class="fas fa-mobile-alt me-2"></i>Active Call</h5>
+                <span id="wsIndicator" class="badge bg-secondary">WS: unknown</span>
+            </div>
             {% if active_call %}
-            <div class="mb-3">
+            <div class="mb-3" id="activeCallCard" data-call-id="{{ active_call.id }}" data-ambulance-id="{% if active_call.assigned_ambulance %}{{ active_call.assigned_ambulance.id }}{% endif %}">
                 <div class="fw-bold">{{ active_call.call_id }} • {{ active_call.get_emergency_type_display }}</div>
                 <div class="text-muted small"><i class="fas fa-location-dot me-1"></i>{{ active_call.location_address }}</div>
-                <div class="mt-2">Status: <span class="badge bg-primary">{{ active_call.get_status_display }}</span></div>
+                <div class="mt-2">Status: <span id="statusBadge" class="badge bg-primary">{{ active_call.get_status_display }}</span></div>
             </div>
             <div class="d-grid gap-2">
                 <button class="btn btn-outline-primary" onclick="updateStatus('EN_ROUTE')">EN ROUTE</button>
@@ -20,8 +23,13 @@
                 <button class="btn btn-outline-success" onclick="updateStatus('AT_HOSPITAL')">AT HOSPITAL</button>
                 <button class="btn btn-outline-secondary" onclick="updateStatus('CLOSED')">BACK IN SERVICE</button>
             </div>
+            <hr>
+            <div class="d-flex align-items-center gap-2">
+                <button id="gpsBtn" class="btn btn-sm btn-outline-dark" type="button">Share Location</button>
+                <small class="text-muted" id="gpsStatus">GPS: idle</small>
+            </div>
             {% else %}
-            <p>No active call assigned.</p>
+            <p id="noActiveCallMsg">No active call assigned.</p>
             {% endif %}
         </div>
     </div>
@@ -35,6 +43,45 @@
 {% if active_call %}
 {% block extra_js %}
 <script>
+// WS client for paramedic
+let ws, gpsTimer = null;
+
+function updateWsIndicator(state) {
+    const el = document.getElementById('wsIndicator');
+    if (!el) return;
+    const styles = { connected: 'bg-success', error: 'bg-warning', closed: 'bg-danger', unknown: 'bg-secondary' };
+    el.className = 'badge ' + (styles[state] || styles.unknown);
+    el.textContent = 'WS: ' + state;
+}
+
+function connectWS() {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${scheme}://${location.host}/ws/paramedic/`);
+    ws.onopen = () => { updateWsIndicator('connected'); try { ws.send(JSON.stringify({type:'ping'})); } catch(e) {} };
+    ws.onmessage = (e) => {
+        try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'emergency_update' && msg.data) {
+                const call = msg.data;
+                const current = document.getElementById('activeCallCard');
+                // If current call matches, update status badge text
+                if (current && String(current.dataset.callId) === String(call.id) && call.status_display) {
+                    const badge = document.getElementById('statusBadge');
+                    if (badge) badge.textContent = call.status_display;
+                } else {
+                    // If no active card (or different), prompt reload when dispatched
+                    if (call.status === 'DISPATCHED') {
+                        showToast('New assignment received', 'info');
+                        setTimeout(()=> location.reload(), 500);
+                    }
+                }
+            }
+        } catch(err) {}
+    };
+    ws.onerror = () => updateWsIndicator('error');
+    ws.onclose = () => updateWsIndicator('closed');
+}
+
 function updateStatus(status) {
     const csrfToken = getCsrfToken();
     
@@ -66,6 +113,50 @@ function updateStatus(status) {
         showToast(errorMessage, 'error');
     });
 }
+
+// GPS sharing
+function startGpsSharing() {
+    const btn = document.getElementById('gpsBtn');
+    const statusEl = document.getElementById('gpsStatus');
+    const card = document.getElementById('activeCallCard');
+    const ambId = card ? card.dataset.ambulanceId : '';
+    if (!ambId) { showToast('No assigned ambulance to update', 'warning'); return; }
+    if (!navigator.geolocation) { showToast('Geolocation not supported', 'error'); return; }
+    btn.disabled = true; btn.textContent = 'Sharing...'; statusEl.textContent = 'GPS: starting';
+    const send = (pos) => {
+        const lat = Math.round(pos.coords.latitude * 1000000) / 1000000;
+        const lng = Math.round(pos.coords.longitude * 1000000) / 1000000;
+        fetch(`/dispatch/api/ambulances/${ambId}/location/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+            body: JSON.stringify({ current_latitude: lat, current_longitude: lng })
+        }).then(()=>{ statusEl.textContent = `GPS: ${lat}, ${lng}`; }).catch(()=>{});
+    };
+    const tick = () => {
+        navigator.geolocation.getCurrentPosition(send, ()=>{}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+    };
+    tick();
+    gpsTimer = setInterval(tick, 15000);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    connectWS();
+    const gpsBtn = document.getElementById('gpsBtn');
+    if (gpsBtn) gpsBtn.addEventListener('click', startGpsSharing);
+});
+</script>
+{% endblock %}
+{% endif %}
+{% if not active_call %}
+{% block extra_js %}
+<script>
+// Poll for new assignments every 10 seconds when no active call is present
+setInterval(function() {
+    fetch('/api/emergencies/my-active/', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+        .then(function(res) { return res.status === 204 ? null : res.json(); })
+        .then(function(data) { if (data && data.id) { location.reload(); } })
+        .catch(function() {});
+}, 10000);
 </script>
 {% endblock %}
 {% endif %}

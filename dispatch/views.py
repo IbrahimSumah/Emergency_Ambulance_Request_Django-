@@ -3,6 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import render
+from django.views.decorators.http import require_POST
 from .models import Ambulance, Hospital
 from .serializers import AmbulanceSerializer, AmbulanceLocationUpdateSerializer, HospitalSerializer, DispatchSerializer
 
@@ -76,6 +77,7 @@ def dispatch_ambulance(request):
         emergency_call_id = serializer.validated_data['emergency_call_id']
         ambulance_id = serializer.validated_data['ambulance_id']
         paramedic_id = serializer.validated_data.get('paramedic_id')
+        hospital_id = serializer.validated_data.get('hospital_id')
         
         # Get the objects
         from emergencies.models import EmergencyCall
@@ -94,6 +96,13 @@ def dispatch_ambulance(request):
         emergency_call.assigned_ambulance = ambulance
         emergency_call.assigned_paramedic = paramedic
         emergency_call.dispatcher = request.user
+        if hospital_id:
+            from .models import Hospital
+            try:
+                dest = Hospital.objects.get(id=hospital_id)
+                emergency_call.hospital_destination = dest.name
+            except Hospital.DoesNotExist:
+                pass
         emergency_call.update_status('DISPATCHED')
         
         # Send real-time notifications
@@ -122,6 +131,16 @@ def dispatch_ambulance(request):
                     'data': EmergencyCallSerializer(emergency_call).data
                 }
             )
+            # Notify assigned paramedic channel
+            if emergency_call.assigned_paramedic_id:
+                async_to_sync(channel_layer.group_send)(
+                    f'paramedic_{emergency_call.assigned_paramedic_id}',
+                    {
+                        'type': 'emergency_update',
+                        'event': 'UNIT_DISPATCHED',
+                        'data': EmergencyCallSerializer(emergency_call).data
+                    }
+                )
         
         return Response({
             'message': 'Ambulance dispatched successfully',
@@ -146,3 +165,36 @@ def fleet_overview(request):
         return render(request, 'core/login_required.html')
     
     return render(request, 'dispatch/fleet_overview.html')
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_hospital_capacity(request, pk):
+    """Allow dispatcher/admin to update hospital capacity and available beds."""
+    try:
+        hospital = Hospital.objects.get(pk=pk)
+    except Hospital.DoesNotExist:
+        return Response({'error': 'Hospital not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Optional: enforce role permissions here if needed
+    allowed_fields = {'available_beds', 'total_beds', 'emergency_capacity'}
+    data = {k: v for k, v in request.data.items() if k in allowed_fields}
+
+    serializer = HospitalSerializer(hospital, data=data, partial=True)
+    if serializer.is_valid():
+        hospital = serializer.save()
+        # Broadcast update to dispatchers
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                'dispatchers',
+                {
+                    'type': 'hospital_update',
+                    'event': 'CAPACITY_UPDATE',
+                    'data': HospitalSerializer(hospital).data
+                }
+            )
+        return Response(HospitalSerializer(hospital).data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
