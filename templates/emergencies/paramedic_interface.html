@@ -13,34 +13,172 @@
             {% if active_call %}
             <div class="mb-3" id="activeCallCard" data-call-id="{{ active_call.id }}" data-ambulance-id="{% if active_call.assigned_ambulance %}{{ active_call.assigned_ambulance.id }}{% endif %}">
                 <div class="fw-bold">{{ active_call.call_id }} • {{ active_call.get_emergency_type_display }}</div>
-                <div class="text-muted small"><i class="fas fa-location-dot me-1"></i>{{ active_call.location_address }}</div>
-                <div class="mt-2">Status: <span id="statusBadge" class="badge bg-primary">{{ active_call.get_status_display }}</span></div>
+                <div class="text-muted small">
+                    <i class="fas fa-location-dot me-1"></i>{{ active_call.location_address }}
+                    {% if active_call.description %}
+                    <br><i class="fas fa-info-circle me-1"></i>{{ active_call.description }}
+                    {% endif %}
+                </div>
+                <div class="mt-2">
+                    <span class="badge text-bg-secondary me-2">Priority: {{ active_call.get_priority_display }}</span>
+                    <span id="statusBadge" class="badge bg-primary">{{ active_call.get_status_display }}</span>
+                </div>
+                {% if active_call.patient_name %}
+                <div class="mt-2">
+                    <strong>Patient:</strong> {{ active_call.patient_name }}
+                    {% if active_call.patient_age %} ({{ active_call.patient_age }} years){% endif %}
+                    {% if active_call.patient_condition %}<br><em>{{ active_call.patient_condition }}</em>{% endif %}
+                </div>
+                {% endif %}
             </div>
             <div class="d-grid gap-2">
-                <button class="btn btn-outline-primary" onclick="updateStatus('EN_ROUTE')">EN ROUTE</button>
-                <button class="btn btn-outline-danger" onclick="updateStatus('ON_SCENE')">ON SCENE</button>
-                <button class="btn btn-outline-purple" onclick="updateStatus('TRANSPORTING')">TRANSPORTING</button>
-                <button class="btn btn-outline-success" onclick="updateStatus('AT_HOSPITAL')">AT HOSPITAL</button>
-                <button class="btn btn-outline-secondary" onclick="updateStatus('CLOSED')">BACK IN SERVICE</button>
+                <button class="btn btn-outline-primary" onclick="updateStatus('EN_ROUTE')">
+                    <i class="fas fa-car me-2"></i>EN ROUTE
+                </button>
+                <button class="btn btn-outline-danger" onclick="updateStatus('ON_SCENE')">
+                    <i class="fas fa-hospital me-2"></i>ON SCENE
+                </button>
+                <button class="btn btn-outline-purple" onclick="updateStatus('TRANSPORTING')">
+                    <i class="fas fa-ambulance me-2"></i>TRANSPORTING
+                </button>
+                <button class="btn btn-outline-success" onclick="updateStatus('AT_HOSPITAL')">
+                    <i class="fas fa-building me-2"></i>AT HOSPITAL
+                </button>
+                <button class="btn btn-outline-secondary" onclick="updateStatus('CLOSED')">
+                    <i class="fas fa-check-circle me-2"></i>BACK IN SERVICE
+                </button>
             </div>
             <hr>
-            <div class="d-flex align-items-center gap-2">
-                <button id="gpsBtn" class="btn btn-sm btn-outline-dark" type="button">Share Location</button>
-                <small class="text-muted" id="gpsStatus">GPS: idle</small>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center gap-2">
+                        <button id="gpsBtn" class="btn btn-sm btn-outline-dark" type="button">
+                            <i class="fas fa-map-marker-alt"></i> Share Location
+                        </button>
+                        <small class="text-muted" id="gpsStatus">GPS: idle</small>
+                    </div>
+                </div>
+                <div class="col-md-6 text-end">
+                    <small class="text-muted">
+                        <i class="fas fa-clock me-1"></i>
+                        Received: <span id="callDuration">{{ active_call.received_at|timesince }} ago</span>
+                    </small>
+                </div>
             </div>
             {% else %}
-            <p id="noActiveCallMsg">No active call assigned.</p>
+            <div class="text-center py-4">
+                <i class="fas fa-phone-alt fa-3x text-muted mb-3"></i>
+                <h6 class="text-muted">No Active Call</h6>
+                <p id="noActiveCallMsg" class="text-muted">Waiting for dispatch assignment...</p>
+                <div class="d-flex justify-content-center">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
             {% endif %}
         </div>
     </div>
+
+    <!-- Additional Info Card for active calls -->
+    {% if active_call %}
+    <div class="card shadow-sm mt-3" id="callDetailsCard">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>Call Details</h6>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <table class="table table-sm">
+                        <tr>
+                            <td><strong>Call ID:</strong></td>
+                            <td>{{ active_call.call_id }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Caller:</strong></td>
+                            <td>{{ active_call.caller_name }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Phone:</strong></td>
+                            <td>{{ active_call.caller_phone }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Type:</strong></td>
+                            <td>{{ active_call.get_emergency_type_display }}</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <table class="table table-sm">
+                        <tr>
+                            <td><strong>Priority:</strong></td>
+                            <td>
+                                <span class="badge {% if active_call.priority == 'CRITICAL' %}bg-danger{% elif active_call.priority == 'HIGH' %}bg-warning{% elif active_call.priority == 'MEDIUM' %}bg-primary{% else %}bg-secondary{% endif %}">
+                                    {{ active_call.get_priority_display }}
+                                </span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>Status:</strong></td>
+                            <td>{{ active_call.get_status_display }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Received:</strong></td>
+                            <td>{{ active_call.received_at|date:"M j, Y H:i" }}</td>
+                        </tr>
+                        {% if active_call.disperser %}
+                        <tr>
+                            <td><strong>Dispatcher:</strong></td>
+                            <td>{{ active_call.disperser.get_full_name }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                </div>
+            </div>
+            
+            {% if active_call.emergency_images %}
+            <div class="mt-3">
+                <h6><i class="fas fa-camera me-2"></i>Emergency Images</h6>
+                <div class="row">
+                    {% for img in active_call.emergency_images %}
+                    <div class="col-md-3 mb-2">
+                        <img src="{{ img.url }}" class="img-fluid rounded" alt="Emergency image" 
+                             onclick="showImageModal('{{ img.url }}')" 
+                             style="cursor: pointer;">
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
 </div>
+
+<!-- Image Modal -->
+{% if active_call and active_call.emergency_images %}
+<div class="modal fade" id="imageModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Emergency Image</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="modalImage" src="" class="img-fluid" alt="Emergency image">
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <style>
 .btn-outline-purple { border-color: #6f42c1; color: #6f42c1; }
 .btn-outline-purple:hover { background-color: #6f42c1; color: #fff; }
 </style>
 
-{% if active_call %}
+{% endblock %}
+
 {% block extra_js %}
 <script>
 // WS client for paramedic
@@ -139,27 +277,48 @@ function startGpsSharing() {
     gpsTimer = setInterval(tick, 15000);
 }
 
+function showImageModal(imageUrl) {
+    if (imageUrl) {
+        document.getElementById('modalImage').src = imageUrl;
+        new bootstrap.Modal(document.getElementById('imageModal')).show();
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     connectWS();
     const gpsBtn = document.getElementById('gpsBtn');
     if (gpsBtn) gpsBtn.addEventListener('click', startGpsSharing);
+    
+    // Poll for new assignments every 10 seconds when no active call is present
+    {% if not active_call %}
+    setInterval(function() {
+        fetch('/api/emergencies/my-active/', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+            .then(function(res) { return res.status === 204 ? null : res.json(); })
+            .then(function(data) { if (data && data.id) { location.reload(); } })
+            .catch(function() {});
+    }, 10000);
+    {% endif %}
+
+    // Update call duration timestamp every minute
+    {% if active_call %}
+    setInterval(function() {
+        const durationEl = document.getElementById('callDuration');
+        if (durationEl) {
+            // Simple time diff calculation
+            const callTime = new Date('{{ active_call.received_at|date:"c" }}');
+            const now = new Date();
+            const diffMs = now - callTime;
+            const diffMinutes = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMinutes / 60);
+            
+            if (diffHours > 0) {
+                durationEl.textContent = `${diffHours}h ${diffMinutes % 60}m ago`;
+            } else {
+                durationEl.textContent = `${diffMinutes}m ago`;
+            }
+        }
+    }, 60000);
+    {% endif %}
 });
 </script>
 {% endblock %}
-{% endif %}
-{% if not active_call %}
-{% block extra_js %}
-<script>
-// Poll for new assignments every 10 seconds when no active call is present
-setInterval(function() {
-    fetch('/api/emergencies/my-active/', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
-        .then(function(res) { return res.status === 204 ? null : res.json(); })
-        .then(function(data) { if (data && data.id) { location.reload(); } })
-        .catch(function() {});
-}, 10000);
-</script>
-{% endblock %}
-{% endif %}
-{% endblock %}
-
-
