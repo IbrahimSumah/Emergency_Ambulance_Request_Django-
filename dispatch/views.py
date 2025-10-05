@@ -1,27 +1,51 @@
 from rest_framework import generics, status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
 from .models import Ambulance, Hospital
-from .serializers import AmbulanceSerializer, AmbulanceLocationUpdateSerializer, HospitalSerializer, DispatchSerializer
+from .serializers import (
+    AmbulanceSerializer,
+    AmbulanceLocationUpdateSerializer,
+    HospitalSerializer,
+    DispatchSerializer,
+)
 
 
-class AmbulanceListView(generics.ListAPIView):
-    """API view for listing all ambulances"""
-    
+class AmbulanceListCreateView(generics.ListCreateAPIView):
+    """List all ambulances and allow dispatchers to create new units."""
+
     queryset = Ambulance.objects.all()
     serializer_class = AmbulanceSerializer
     permission_classes = [IsAuthenticated]
 
+    def create(self, request, *args, **kwargs):
+        if not getattr(request.user, "is_dispatcher", False):
+            return Response({"error": "Only dispatchers can create ambulances"}, status=status.HTTP_403_FORBIDDEN)
 
-class AmbulanceDetailView(generics.RetrieveUpdateAPIView):
-    """API view for retrieving and updating ambulance details"""
-    
+        return super().create(request, *args, **kwargs)
+
+
+class AmbulanceDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update, or delete an ambulance. Delete restricted to dispatchers."""
+
     queryset = Ambulance.objects.all()
     serializer_class = AmbulanceSerializer
     permission_classes = [IsAuthenticated]
+
+    def destroy(self, request, *args, **kwargs):
+        if not getattr(request.user, "is_dispatcher", False):
+            return Response({"error": "Only dispatchers can delete ambulances"}, status=status.HTTP_403_FORBIDDEN)
+
+        ambulance = self.get_object()
+        # Prevent deleting units that are currently assigned/busy
+        if ambulance.current_emergency_id or not ambulance.is_available:
+            return Response({"error": "Cannot delete an ambulance that is assigned or not available"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return super().destroy(request, *args, **kwargs)
 
 
 @api_view(['POST'])
@@ -151,12 +175,36 @@ def dispatch_ambulance(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class HospitalListView(generics.ListAPIView):
-    """API view for listing all hospitals"""
-    
+class HospitalListCreateView(generics.ListCreateAPIView):
+    """List hospitals and allow staff/admin to create new hospitals."""
+
     queryset = Hospital.objects.all()
     serializer_class = HospitalSerializer
     permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_admin', False)):
+            return Response({"error": "Only admin/staff can create hospitals"}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+class HospitalDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete hospital; restricted to staff/admin for write ops."""
+
+    queryset = Hospital.objects.all()
+    serializer_class = HospitalSerializer
+    permission_classes = [IsAuthenticated]
+
+    def update(self, request, *args, **kwargs):
+        user = request.user
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_admin', False)):
+            return Response({"error": "Only admin/staff can update hospitals"}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        user = request.user
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_admin', False)):
+            return Response({"error": "Only admin/staff can delete hospitals"}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
 
 
 def fleet_overview(request):

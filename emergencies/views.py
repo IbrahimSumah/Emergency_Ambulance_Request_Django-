@@ -280,12 +280,13 @@ def landing_page(request):
     return render(request, 'emergencies/landing.html')
 
 
-def dispatcher_dashboard(request):
+def dispatcher_dashboard(request, default_filter=None):
     """Dispatcher dashboard view"""
     if not request.user.is_authenticated or not request.user.is_dispatcher:
         return render(request, 'core/login_required.html')
     
-    return render(request, 'emergencies/dispatcher_dashboard.html')
+    context = { 'default_filter': default_filter or request.GET.get('filter') }
+    return render(request, 'emergencies/dispatcher_dashboard.html', context)
 
 
 def paramedic_interface(request):

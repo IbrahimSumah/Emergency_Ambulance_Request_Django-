@@ -1,0 +1,381 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="row g-3">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold"><i class="fas fa-users me-2"></i>Users</span>
+          <button class="btn btn-sm btn-primary" onclick="openUserModal()"><i class="fas fa-plus me-1"></i>Add</button>
+        </div>
+        <div class="card-body" id="usersTable">Loading...</div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold"><i class="fas fa-hospital me-2"></i>Hospitals</span>
+          <button class="btn btn-sm btn-primary" onclick="openHospitalModal()"><i class="fas fa-plus me-1"></i>Add</button>
+        </div>
+        <div class="card-body" id="hospitalsTable">Loading...</div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold"><i class="fas fa-truck me-2"></i>Ambulances</span>
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'dispatch:fleet_overview' %}"><i class="fas fa-external-link-alt me-1"></i>Open Fleet</a>
+        </div>
+        <div class="card-body" id="adminFleetTable">Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function loadHospitals() {
+  const res = await fetch('/dispatch/api/hospitals/');
+  const data = res.ok ? await res.json() : [];
+  const rows = (data||[]).map(h=>`<tr>
+      <td>${h.name}</td>
+      <td>${h.emergency_capacity_display || h.emergency_capacity}</td>
+      <td>${h.available_beds ?? '-'} / ${h.total_beds ?? '-'}</td>
+      <td>${h.phone_number || '-'}</td>
+      <td class='text-end'>
+        <button class='btn btn-sm btn-outline-secondary me-1' onclick='openHospitalModal(${JSON.stringify(h).replace(/'/g, "&apos;")})'><i class='fas fa-pen'></i></button>
+        <button class='btn btn-sm btn-outline-danger' onclick='deleteHospital(${h.id})'><i class='fas fa-trash'></i></button>
+      </td>
+    </tr>`).join('');
+  document.getElementById('hospitalsTable').innerHTML = `
+    <div class='table-responsive'>
+      <table class='table table-striped align-middle'>
+        <thead><tr>
+          <th>Name</th><th>Capacity</th><th>Beds</th><th>Phone</th><th class='text-end'>Actions</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+async function loadAmbulances() {
+  const res = await fetch('/dispatch/api/ambulances/');
+  const data = res.ok ? await res.json() : [];
+  const rows = (data||[]).map(a=>`<tr>
+      <td>${a.unit_number}</td>
+      <td>${a.unit_type_display}</td>
+      <td>${a.status_display}</td>
+      <td>${a.assigned_paramedic_name || '-'}</td>
+    </tr>`).join('');
+  document.getElementById('adminFleetTable').innerHTML = `
+    <div class='table-responsive'>
+      <table class='table table-striped align-middle'>
+        <thead><tr>
+          <th>Unit</th><th>Type</th><th>Status</th><th>Paramedic</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function openHospitalModal(h) {
+  let modal = document.getElementById('hospitalModal');
+  if (!modal) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class='modal fade' id='hospitalModal' tabindex='-1'>
+        <div class='modal-dialog'>
+          <div class='modal-content'>
+            <div class='modal-header'>
+              <h5 class='modal-title' id='hospitalModalTitle'>Hospital</h5>
+              <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+              <form id='hospitalForm'>
+                <div class='mb-3'><label class='form-label'>Name *</label><input class='form-control' name='name' required></div>
+                <div class='mb-3'><label class='form-label'>Address *</label><input class='form-control' name='address' required></div>
+                <div class='row'>
+                  <div class='col-6 mb-3'><label class='form-label'>Latitude *</label><input type='number' step='0.000001' class='form-control' name='latitude' required></div>
+                  <div class='col-6 mb-3'><label class='form-label'>Longitude *</label><input type='number' step='0.000001' class='form-control' name='longitude' required></div>
+                </div>
+                <div class='mb-2 d-flex align-items-center gap-2'>
+                  <button type='button' class='btn btn-sm btn-outline-primary' onclick='toggleHospitalMap()'>
+                    <i class='fas fa-map-location-dot me-1'></i>Pick on Map
+                  </button>
+                  <div id='hospitalMapSearch' class='input-group input-group-sm' style='max-width: 360px; display:none;'>
+                    <input type='text' class='form-control' id='hospitalMapQuery' placeholder='Search place (OSM)'>
+                    <button class='btn btn-outline-secondary' type='button' onclick='hospitalGeocode()'>Search</button>
+                  </div>
+                </div>
+                <div id='hospitalMapWrap' style='display:none;'>
+                  <div id='hospitalMap' style='height: 260px; border:1px solid #ddd; border-radius: .25rem;'></div>
+                  <small class='text-muted'>Tip: Click on the map to set location, or search above.</small>
+                </div>
+                <div class='mb-3'><label class='form-label'>Phone</label><input class='form-control' name='phone_number'></div>
+                <div class='row'>
+                  <div class='col-6 mb-3'><label class='form-label'>Total Beds</label><input type='number' class='form-control' name='total_beds' value='0'></div>
+                  <div class='col-6 mb-3'><label class='form-label'>Available Beds</label><input type='number' class='form-control' name='available_beds' value='0'></div>
+                </div>
+                <div class='mb-3'><label class='form-label'>Capacity</label>
+                  <select class='form-select' name='emergency_capacity'>
+                    <option value='LOW'>Low Load</option>
+                    <option value='MODERATE'>Moderate Load</option>
+                    <option value='HIGH'>High Load</option>
+                    <option value='FULL'>At Capacity</option>
+                  </select>
+                </div>
+                <div class='mb-3'><label class='form-label'>Specialties</label><textarea class='form-control' rows='2' name='specialties'></textarea></div>
+              </form>
+            </div>
+            <div class='modal-footer'>
+              <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Cancel</button>
+              <button type='button' class='btn btn-primary' id='saveHospitalBtn'>Save</button>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    modal = document.getElementById('hospitalModal');
+  }
+  document.getElementById('hospitalModalTitle').textContent = h && h.id ? `Edit ${h.name}` : 'Add Hospital';
+  const form = document.getElementById('hospitalForm');
+  form.name.value = (h && h.name) || '';
+  form.address.value = (h && h.address) || '';
+  form.latitude.value = (h && h.latitude) != null ? h.latitude : '';
+  form.longitude.value = (h && h.longitude) != null ? h.longitude : '';
+  form.phone_number.value = (h && h.phone_number) || '';
+  form.total_beds.value = (h && h.total_beds) != null ? h.total_beds : 0;
+  form.available_beds.value = (h && h.available_beds) != null ? h.available_beds : 0;
+  form.emergency_capacity.value = (h && h.emergency_capacity) || 'MODERATE';
+  form.specialties.value = (h && h.specialties) || '';
+  const saveBtn = document.getElementById('saveHospitalBtn');
+  saveBtn.onclick = () => submitHospital(h && h.id);
+  new bootstrap.Modal(modal).show();
+
+  // Initialize map picker (deferred to allow modal animation)
+  setTimeout(()=> initHospitalMap(), 200);
+}
+
+async function submitHospital(id) {
+  try {
+    const form = document.getElementById('hospitalForm');
+    if (!form.checkValidity()) { form.classList.add('was-validated'); return; }
+    const data = Object.fromEntries(new FormData(form).entries());
+    ['total_beds','available_beds','latitude','longitude'].forEach(k=>{ if (data[k]!=='' && !isNaN(data[k])) data[k]=Number(data[k]); });
+    const url = id ? `/dispatch/api/hospitals/${id}/` : '/dispatch/api/hospitals/';
+    const method = id ? 'PATCH' : 'POST';
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() }, body: JSON.stringify(data) });
+    if (!res.ok) { const err = await res.json().catch(()=>({})); throw new Error(err.error || 'Save failed'); }
+    showToast('Hospital saved', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('hospitalModal')).hide();
+    await loadHospitals();
+  } catch (e) {
+    console.error(e);
+    showToast(e.message || 'Failed to save hospital', 'error');
+  }
+}
+
+async function deleteHospital(id) {
+  if (!confirm('Delete this hospital? This cannot be undone.')) return;
+  const res = await fetch(`/dispatch/api/hospitals/${id}/`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrfToken() } });
+  if (res.ok) { showToast('Hospital deleted', 'success'); loadHospitals(); }
+  else { const err = await res.json().catch(()=>({})); showToast(err.error||'Delete failed', 'error'); }
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{ loadHospitals(); loadAmbulances(); });
+document.addEventListener('DOMContentLoaded', ()=>{ loadUsers(); });
+
+// Map picker logic (Leaflet + OSM Nominatim)
+let hospitalMap, hospitalMarker;
+function toggleHospitalMap() {
+  const wrap = document.getElementById('hospitalMapWrap');
+  const search = document.getElementById('hospitalMapSearch');
+  const isHidden = wrap && wrap.style.display === 'none';
+  if (wrap) wrap.style.display = isHidden ? '' : 'none';
+  if (search) search.style.display = isHidden ? '' : 'none';
+  if (isHidden) initHospitalMap();
+}
+
+function initHospitalMap() {
+  const mapEl = document.getElementById('hospitalMap');
+  if (!mapEl) return;
+  const form = document.getElementById('hospitalForm');
+  const lat = parseFloat(form.latitude.value) || 6.5244;
+  const lng = parseFloat(form.longitude.value) || 3.3792;
+  const center = [lat, lng];
+  if (!hospitalMap) {
+    hospitalMap = L.map('hospitalMap').setView(center, (form.latitude.value && form.longitude.value) ? 14 : 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(hospitalMap);
+    hospitalMap.on('click', function(e) {
+      setHospitalMarker(e.latlng.lat, e.latlng.lng, true);
+    });
+  } else {
+    hospitalMap.setView(center, (form.latitude.value && form.longitude.value) ? 14 : 5);
+  }
+  setHospitalMarker(center[0], center[1], false);
+  setTimeout(()=> hospitalMap.invalidateSize(), 150);
+}
+
+function setHospitalMarker(lat, lng, updateFields) {
+  if (!hospitalMap) return;
+  if (!hospitalMarker) {
+    hospitalMarker = L.marker([lat, lng], { draggable: true }).addTo(hospitalMap);
+    hospitalMarker.on('dragend', function() {
+      const p = hospitalMarker.getLatLng();
+      writeHospitalLatLng(p.lat, p.lng);
+    });
+  } else {
+    hospitalMarker.setLatLng([lat, lng]);
+  }
+  if (updateFields) writeHospitalLatLng(lat, lng);
+}
+
+function writeHospitalLatLng(lat, lng) {
+  const form = document.getElementById('hospitalForm');
+  form.latitude.value = (Math.round(lat * 1000000) / 1000000).toFixed(6);
+  form.longitude.value = (Math.round(lng * 1000000) / 1000000).toFixed(6);
+}
+
+async function hospitalGeocode() {
+  try {
+    const q = (document.getElementById('hospitalMapQuery').value || '').trim();
+    if (!q) { showToast('Enter a place to search', 'warning'); return; }
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error('Search failed');
+    const results = await res.json();
+    if (!Array.isArray(results) || results.length === 0) { showToast('No results found', 'warning'); return; }
+    const r = results[0];
+    const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+    if (isNaN(lat) || isNaN(lng)) { showToast('Invalid result', 'error'); return; }
+    initHospitalMap();
+    hospitalMap.setView([lat, lng], 15);
+    setHospitalMarker(lat, lng, true);
+  } catch (e) {
+    console.error(e);
+    showToast('Search failed', 'error');
+  }
+}
+</script>
+<script>
+// Users management
+async function loadUsers() {
+  const res = await fetch('/core/api/users/');
+  const users = res.ok ? await res.json() : [];
+  const rows = (users||[]).map(u=>`<tr>
+    <td>${u.username}</td>
+    <td>${u.first_name||''} ${u.last_name||''}</td>
+    <td>${u.email||''}</td>
+    <td>${u.role}</td>
+    <td>${u.is_active ? 'Active' : 'Inactive'}</td>
+    <td class='text-end'>
+      <button class='btn btn-sm btn-outline-secondary me-1' onclick='openUserModal(${JSON.stringify(u).replace(/'/g, "&apos;")})'><i class='fas fa-pen'></i></button>
+      <button class='btn btn-sm btn-outline-danger' onclick='deleteUser(${u.id})'><i class='fas fa-trash'></i></button>
+    </td>
+  </tr>`).join('');
+  document.getElementById('usersTable').innerHTML = `
+    <div class='table-responsive'>
+      <table class='table table-striped align-middle'>
+        <thead><tr><th>Username</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th class='text-end'>Actions</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function openUserModal(u) {
+  let modal = document.getElementById('userModal');
+  if (!modal) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class='modal fade' id='userModal' tabindex='-1'>
+        <div class='modal-dialog'>
+          <div class='modal-content'>
+            <div class='modal-header'>
+              <h5 class='modal-title' id='userModalTitle'>User</h5>
+              <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+              <form id='userForm'>
+                <div class='row'>
+                  <div class='col-6 mb-3'><label class='form-label'>Username *</label><input class='form-control' name='username' required></div>
+                  <div class='col-6 mb-3'><label class='form-label'>Email</label><input type='email' class='form-control' name='email'></div>
+                </div>
+                <div class='row'>
+                  <div class='col-6 mb-3'><label class='form-label'>First Name</label><input class='form-control' name='first_name'></div>
+                  <div class='col-6 mb-3'><label class='form-label'>Last Name</label><input class='form-control' name='last_name'></div>
+                </div>
+                <div class='row'>
+                  <div class='col-6 mb-3'><label class='form-label'>Role</label>
+                    <select class='form-select' name='role'>
+                      <option value='dispatcher'>Dispatcher</option>
+                      <option value='paramedic'>Paramedic</option>
+                      <option value='admin'>Administrator</option>
+                    </select>
+                  </div>
+                  <div class='col-6 mb-3'><label class='form-label'>Status</label>
+                    <select class='form-select' name='is_active'>
+                      <option value='true'>Active</option>
+                      <option value='false'>Inactive</option>
+                    </select>
+                  </div>
+                </div>
+                <div class='mb-3'><label class='form-label'>Password <small class='text-muted'>(set/reset, min 8)</small></label><input type='password' class='form-control' name='password' minlength='8'></div>
+              </form>
+            </div>
+            <div class='modal-footer'>
+              <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Cancel</button>
+              <button type='button' class='btn btn-primary' id='saveUserBtn'>Save</button>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    modal = document.getElementById('userModal');
+  }
+  document.getElementById('userModalTitle').textContent = u && u.id ? `Edit ${u.username}` : 'Add User';
+  const form = document.getElementById('userForm');
+  form.username.value = (u && u.username) || '';
+  form.email.value = (u && u.email) || '';
+  form.first_name.value = (u && u.first_name) || '';
+  form.last_name.value = (u && u.last_name) || '';
+  form.role.value = (u && u.role) || 'dispatcher';
+  form.is_active.value = (u && u.is_active) ? 'true' : 'false';
+  form.password.value = '';
+  const saveBtn = document.getElementById('saveUserBtn');
+  saveBtn.onclick = () => submitUser(u && u.id);
+  new bootstrap.Modal(modal).show();
+}
+
+async function submitUser(id) {
+  try {
+    const form = document.getElementById('userForm');
+    if (!form.checkValidity()) { form.classList.add('was-validated'); return; }
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.is_active = data.is_active === 'true';
+    if (!data.password) delete data.password;
+    const url = id ? `/core/api/users/${id}/` : '/core/api/users/';
+    const method = id ? 'PATCH' : 'POST';
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() }, body: JSON.stringify(data) });
+    if (!res.ok) { const err = await res.json().catch(()=>({})); throw new Error(err.error || 'Save failed'); }
+    showToast('User saved', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+    await loadUsers();
+  } catch (e) {
+    console.error(e);
+    showToast(e.message || 'Failed to save user', 'error');
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm('Delete this user? This cannot be undone.')) return;
+  const res = await fetch(`/core/api/users/${id}/`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrfToken() } });
+  if (res.ok) { showToast('User deleted', 'success'); loadUsers(); }
+  else { const err = await res.json().catch(()=>({})); showToast(err.error||'Delete failed', 'error'); }
+}
+</script>
+{% endblock %}
+
+

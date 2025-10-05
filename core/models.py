@@ -25,3 +25,14 @@ class User(AbstractUser):
     @property
     def is_paramedic(self):
         return self.role == 'paramedic'
+
+    @property
+    def is_admin(self):
+        # Treat Django superusers as admins in-app
+        return self.role == 'admin' or bool(getattr(self, 'is_superuser', False))
+
+    def save(self, *args, **kwargs):
+        # Ensure superusers default to admin role for app-level permissions
+        if getattr(self, 'is_superuser', False) and self.role != 'admin':
+            self.role = 'admin'
+        super().save(*args, **kwargs)

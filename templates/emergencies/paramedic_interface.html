@@ -32,30 +32,30 @@
                 {% endif %}
             </div>
             <div class="d-grid gap-2">
-                <button class="btn btn-outline-primary" onclick="updateStatus('EN_ROUTE')">
+                <button id="btnEnRoute" class="btn btn-outline-primary" onclick="guardedUpdate('EN_ROUTE')">
                     <i class="fas fa-car me-2"></i>EN ROUTE
                 </button>
-                <button class="btn btn-outline-danger" onclick="updateStatus('ON_SCENE')">
+                <button id="btnOnScene" class="btn btn-outline-danger" onclick="guardedUpdate('ON_SCENE')">
                     <i class="fas fa-hospital me-2"></i>ON SCENE
                 </button>
-                <button class="btn btn-outline-purple" onclick="updateStatus('TRANSPORTING')">
+                <button id="btnTransporting" class="btn btn-outline-purple" onclick="guardedUpdate('TRANSPORTING')">
                     <i class="fas fa-ambulance me-2"></i>TRANSPORTING
                 </button>
-                <button class="btn btn-outline-success" onclick="updateStatus('AT_HOSPITAL')">
+                <button id="btnAtHospital" class="btn btn-outline-success" onclick="confirmAndUpdate('AT_HOSPITAL', 'Confirm arrival at hospital?')">
                     <i class="fas fa-building me-2"></i>AT HOSPITAL
                 </button>
-                <button class="btn btn-outline-secondary" onclick="updateStatus('CLOSED')">
+                <button id="btnClosed" class="btn btn-outline-secondary" onclick="confirmAndUpdate('CLOSED', 'Close the call and return to service?')">
                     <i class="fas fa-check-circle me-2"></i>BACK IN SERVICE
                 </button>
             </div>
             <hr>
             <div class="row">
                 <div class="col-md-6">
-                    <div class="d-flex align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2">
                         <button id="gpsBtn" class="btn btn-sm btn-outline-dark" type="button">
                             <i class="fas fa-map-marker-alt"></i> Share Location
                         </button>
-                        <small class="text-muted" id="gpsStatus">GPS: idle</small>
+                <small class="text-muted" id="gpsStatus">GPS: idle</small>
                     </div>
                 </div>
                 <div class="col-md-6 text-end">
@@ -126,10 +126,10 @@
                             <td><strong>Received:</strong></td>
                             <td>{{ active_call.received_at|date:"M j, Y H:i" }}</td>
                         </tr>
-                        {% if active_call.disperser %}
+                        {% if active_call.dispatcher %}
                         <tr>
                             <td><strong>Dispatcher:</strong></td>
-                            <td>{{ active_call.disperser.get_full_name }}</td>
+                            <td>{{ active_call.dispatcher.get_full_name }}</td>
                         </tr>
                         {% endif %}
                     </table>
@@ -183,6 +183,13 @@
 <script>
 // WS client for paramedic
 let ws, gpsTimer = null;
+const allowedTransitions = {
+    'DISPATCHED': ['EN_ROUTE'],
+    'EN_ROUTE': ['ON_SCENE'],
+    'ON_SCENE': ['TRANSPORTING', 'AT_HOSPITAL'],
+    'TRANSPORTING': ['AT_HOSPITAL'],
+    'AT_HOSPITAL': ['CLOSED']
+};
 
 function updateWsIndicator(state) {
     const el = document.getElementById('wsIndicator');
@@ -218,6 +225,33 @@ function connectWS() {
     };
     ws.onerror = () => updateWsIndicator('error');
     ws.onclose = () => updateWsIndicator('closed');
+}
+
+function guardedUpdate(next) {
+    const current = document.getElementById('statusBadge');
+    const currentText = current ? current.textContent.trim().toUpperCase().replace(' ', '_') : '';
+    // Map display back to codes (best-effort)
+    const mapBack = {
+        'RECEIVED': 'RECEIVED',
+        'DISPATCHED': 'DISPATCHED',
+        'EN ROUTE': 'EN_ROUTE',
+        'ON SCENE': 'ON_SCENE',
+        'TRANSPORTING': 'TRANSPORTING',
+        'AT HOSPITAL': 'AT_HOSPITAL',
+        'CLOSED': 'CLOSED'
+    };
+    const currentCode = mapBack[currentText] || currentText;
+    const allowed = allowedTransitions[currentCode] || [];
+    if (!allowed.includes(next)) {
+        showToast('Action not allowed for current status', 'warning');
+        return;
+    }
+    updateStatus(next);
+}
+
+function confirmAndUpdate(next, message) {
+    if (!confirm(message)) return;
+    guardedUpdate(next);
 }
 
 function updateStatus(status) {
@@ -275,6 +309,24 @@ function startGpsSharing() {
     };
     tick();
     gpsTimer = setInterval(tick, 15000);
+    // Provide a stop control
+    if (!document.getElementById('gpsStopBtn')) {
+        const stopBtn = document.createElement('button');
+        stopBtn.id = 'gpsStopBtn';
+        stopBtn.className = 'btn btn-sm btn-outline-secondary';
+        stopBtn.type = 'button';
+        stopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+        stopBtn.onclick = stopGpsSharing;
+        btn.parentElement && btn.parentElement.appendChild(stopBtn);
+    }
+}
+
+function stopGpsSharing() {
+    if (gpsTimer) { clearInterval(gpsTimer); gpsTimer = null; }
+    const btn = document.getElementById('gpsBtn');
+    const statusEl = document.getElementById('gpsStatus');
+    if (btn) { btn.disabled = false; btn.textContent = 'Share Location'; }
+    if (statusEl) statusEl.textContent = 'GPS: stopped';
 }
 
 function showImageModal(imageUrl) {
@@ -288,15 +340,35 @@ document.addEventListener('DOMContentLoaded', function() {
     connectWS();
     const gpsBtn = document.getElementById('gpsBtn');
     if (gpsBtn) gpsBtn.addEventListener('click', startGpsSharing);
+    // Disable invalid transitions on load
+    try {
+        const badge = document.getElementById('statusBadge');
+        const txt = badge ? badge.textContent.trim().toUpperCase() : '';
+        const mapBack = { 'EN ROUTE':'EN_ROUTE', 'ON SCENE':'ON_SCENE', 'AT HOSPITAL':'AT_HOSPITAL' };
+        const cur = mapBack[txt] || txt.replace(' ','_');
+        const allowed = new Set(allowedTransitions[cur] || []);
+        const controls = [
+            ['btnEnRoute','EN_ROUTE'],
+            ['btnOnScene','ON_SCENE'],
+            ['btnTransporting','TRANSPORTING'],
+            ['btnAtHospital','AT_HOSPITAL'],
+            ['btnClosed','CLOSED']
+        ];
+        controls.forEach(([id, code])=>{
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (!allowed.has(code)) { el.disabled = true; el.classList.add('disabled'); }
+        });
+    } catch(e) {}
     
     // Poll for new assignments every 10 seconds when no active call is present
-    {% if not active_call %}
-    setInterval(function() {
-        fetch('/api/emergencies/my-active/', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
-            .then(function(res) { return res.status === 204 ? null : res.json(); })
-            .then(function(data) { if (data && data.id) { location.reload(); } })
-            .catch(function() {});
-    }, 10000);
+{% if not active_call %}
+setInterval(function() {
+    fetch('/api/emergencies/my-active/', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+        .then(function(res) { return res.status === 204 ? null : res.json(); })
+        .then(function(data) { if (data && data.id) { location.reload(); } })
+        .catch(function() {});
+}, 10000);
     {% endif %}
 
     // Update call duration timestamp every minute

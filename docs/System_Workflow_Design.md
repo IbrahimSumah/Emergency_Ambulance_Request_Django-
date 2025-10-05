@@ -239,41 +239,98 @@ sequenceDiagram
 
 ---
 
-## Performance Considerations
 
-### Real-Time Requirements
-- **Low Latency**: WebSocket updates within 100ms
-- **High Availability**: 99.9% uptime target
-- **Scalability**: Support for multiple concurrent dispatchers
-- **Mobile Optimization**: Fast loading on mobile networks
 
-### Data Management
-- **Efficient Queries**: Optimized database queries for real-time data
-- **Caching**: Strategic caching of frequently accessed data
-- **Pagination**: Large dataset handling for call history
-- **Cleanup**: Automatic cleanup of completed calls
+## Ambulance Lifecycle and Operations
 
----
+### Fleet Entities
+- **Model**: `dispatch.Ambulance`
+- **Key Fields**: `unit_number`, `unit_type`, `status`, `current_latitude`, `current_longitude`, `assigned_paramedic`, `current_emergency`
+- **Status Values**: `AVAILABLE`, `EN_ROUTE`, `ON_SCENE`, `TRANSPORTING`, `MAINTENANCE`, `OUT_OF_SERVICE`
 
-## Future Enhancements
+### Lifecycle
+1. **Available**: Idle and ready for assignment (`AVAILABLE`).
+2. **Dispatched**: Assigned to an `EmergencyCall`; status set to `EN_ROUTE`.
+3. **On Scene**: Paramedic marks `ON_SCENE`.
+4. **Transporting**: Paramedic marks `TRANSPORTING` with patient onboard.
+5. **At Hospital**: Paramedic marks `AT_HOSPITAL` when delivered.
+6. **Return to Service**: Call closed; unit status returns to `AVAILABLE`.
 
-### Planned Features
-- **GPS Tracking**: Real-time ambulance location tracking
-- **Hospital Integration**: Direct hospital system integration
-- **Mobile App**: Native mobile applications
-- **Analytics Dashboard**: Performance metrics and reporting
-- **Multi-Hospital Support**: Support for multiple hospital systems
+### Operations
+- Update location: `POST /dispatch/api/ambulances/<id>/location/`
+- List units: `GET /dispatch/api/ambulances/`
+- Get/update unit: `GET|PATCH /dispatch/api/ambulances/<id>/`
+- Dispatch to call: `POST /dispatch/api/dispatch/` with `emergency_call_id`, `ambulance_id`, optional `paramedic_id`, optional `hospital_id`
 
-### Scalability Considerations
-- **Microservices**: Potential migration to microservices architecture
-- **Load Balancing**: Horizontal scaling capabilities
-- **Database Optimization**: Advanced indexing and query optimization
-- **CDN Integration**: Content delivery network for static assets
+### Real-time
+- Location/status broadcasts to dispatcher WS group: `ambulance_update`
+- Paramedic-specific updates via group `paramedic_<user_id>`
 
----
+### Validation & Rules
+- Only `AVAILABLE` units can be dispatched (enforced by `DispatchSerializer.validate_ambulance_id`).
+- Location coordinates validated range-wise (`AmbulanceLocationUpdateSerializer`).
+- Paramedic must match assigned user to update ambulance location.
 
-## Conclusion
 
-This workflow design provides a comprehensive view of how the three user types interact with the Emergency Ambulance System. The system is designed for real-time operation with clear separation of concerns, robust error handling, and intuitive user interfaces for each role.
+## Hospital Capacity and Operations
 
-The workflow ensures efficient emergency response while maintaining data integrity and providing real-time visibility into all operations for dispatchers and field staff.
+### Hospital Entities
+- **Model**: `dispatch.Hospital`
+- **Key Fields**: `name`, `address`, `latitude`, `longitude`, `phone_number`, `total_beds`, `available_beds`, `emergency_capacity`, `specialties`
+- **Capacity Levels**: `LOW`, `MODERATE`, `HIGH`, `FULL`
+
+### Usage in Workflow
+1. Dispatcher optionally selects destination hospital during dispatch.
+2. Paramedic transports patient to selected hospital.
+3. Dispatcher/Admin can update capacity metrics.
+
+### Operations
+- List hospitals: `GET /dispatch/api/hospitals/`
+- Update capacity: `POST /dispatch/api/hospitals/<id>/capacity/` with any of `{ available_beds, total_beds, emergency_capacity }`
+
+### Real-time
+- Capacity changes broadcast to dispatchers via WS `hospital_update` events.
+
+
+## Roles and Permissions Summary
+
+- **Visitor/Caller**: Submits emergency requests on public page. No auth. Triggers `EmergencyCall` creation with status `RECEIVED`.
+- **Dispatcher**: Auth role `dispatcher`. Views dashboard, dispatches ambulances, monitors fleet and hospital capacity.
+- **Paramedic**: Auth role `paramedic`. Views assigned call, updates status flow, can share ambulance location.
+- **Admin**: Django admin for data oversight; can also update hospital capacity.
+
+
+## Key API Endpoints Reference
+
+### Emergencies
+- Create/List calls: `POST|GET /api/emergencies/`
+- Retrieve/Update call: `GET|PATCH /api/emergencies/<id>/`
+- Update call status: `PATCH /api/emergencies/<id>/status/`
+- Active calls filter: `GET /api/emergencies/active/?status={active|pending|completed}`
+- My active call (paramedic): `GET /api/emergencies/my-active/`
+- Upload image: `POST /api/emergencies/upload-image/`
+
+### Dispatch
+- List ambulances: `GET /dispatch/api/ambulances/`
+- Ambulance detail/update: `GET|PATCH /dispatch/api/ambulances/<id>/`
+- Update ambulance location: `POST /dispatch/api/ambulances/<id>/location/`
+- Dispatch ambulance: `POST /dispatch/api/dispatch/`
+- List hospitals: `GET /dispatch/api/hospitals/`
+- Update hospital capacity: `POST /dispatch/api/hospitals/<id>/capacity/`
+
+
+## Data Relationships
+
+- `EmergencyCall.assigned_ambulance` → `dispatch.Ambulance`
+- `EmergencyCall.assigned_paramedic` → `core.User` (paramedic)
+- `dispatch.Ambulance.current_emergency` → `EmergencyCall`
+- Optional destination captured in `EmergencyCall.hospital_destination` (string name); hospital entity managed separately via `dispatch.Hospital`
+
+
+## Visitor-to-Hospital End-to-End
+
+1. Visitor submits emergency → `EmergencyCall(RECEIVED)`; dispatchers notified.
+2. Dispatcher selects ambulance (+ optional paramedic/hospital) → dispatch API sets `EmergencyCall(DISPATCHED)`, `Ambulance(EN_ROUTE)`.
+3. Paramedic progresses statuses: `EN_ROUTE` → `ON_SCENE` → `TRANSPORTING` → `AT_HOSPITAL`.
+4. Hospital capacity may be updated independently; arrival does not auto-decrement capacity (left to operator policy via capacity API).
+5. Paramedic marks `CLOSED`; ambulance returns to `AVAILABLE`.

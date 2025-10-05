@@ -7,6 +7,9 @@ urlpatterns = [
     # Web views
     path('emergency/', views.landing_page, name='landing'),
     path('dashboard/', views.dispatcher_dashboard, name='dispatcher_dashboard'),
+    path('dashboard/pending/', views.dispatcher_dashboard, {'default_filter': 'pending'}, name='dispatcher_dashboard_pending'),
+    path('dashboard/active/', views.dispatcher_dashboard, {'default_filter': 'active'}, name='dispatcher_dashboard_active'),
+    path('dashboard/completed/', views.dispatcher_dashboard, {'default_filter': 'completed'}, name='dispatcher_dashboard_completed'),
     path('paramedic/', views.paramedic_interface, name='paramedic_interface'),
     
     # API endpoints
