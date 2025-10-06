@@ -13,4 +13,5 @@ urlpatterns = [
     path('api/users/<int:pk>/', views.UserDetailView.as_view(), name='user_detail'),
     # Utility API
     path('api/paramedics/', views.ParamedicListView.as_view(), name='paramedic_list'),
+    path('api/paramedics/toggle-availability/', views.ToggleAvailabilityView.as_view(), name='paramedic_toggle_availability'),
 ]

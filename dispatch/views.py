@@ -196,9 +196,25 @@ class HospitalDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def update(self, request, *args, **kwargs):
         user = request.user
-        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_admin', False)):
-            return Response({"error": "Only admin/staff can update hospitals"}, status=status.HTTP_403_FORBIDDEN)
-        return super().update(request, *args, **kwargs)
+        # Allow staff/admin full updates; dispatchers limited to safe fields
+        if getattr(user, 'is_staff', False) or getattr(user, 'is_admin', False):
+            return super().update(request, *args, **kwargs)
+        if getattr(user, 'is_dispatcher', False):
+            # Whitelist dispatcher-editable fields
+            allowed = {
+                'name', 'address', 'phone_number', 'specialties',
+                'available_beds', 'emergency_capacity', 'total_beds'
+            }
+            data = {k: v for k, v in request.data.items() if k in allowed}
+            if not data:
+                return Response({"error": "No permitted fields to update"}, status=status.HTTP_400_BAD_REQUEST)
+            partial = True
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return Response(serializer.data)
+        return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
 
     def destroy(self, request, *args, **kwargs):
         user = request.user

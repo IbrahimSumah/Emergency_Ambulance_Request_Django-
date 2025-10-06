@@ -130,6 +130,7 @@ const ambulancesById = new Map();
 let hospitals = [];
 let pollingTimer = null;
 let currentCallsFilter = 'pending';
+let paramedicCache = null;
 
 function statusBadge(status) {
     const color = {
@@ -170,7 +171,10 @@ function renderCalls(filter) {
                 </div>
                 <div>
                     ${statusBadge(call.status)}
-                    ${call.status === 'RECEIVED' ? '<button class="btn btn-sm btn-primary ms-1" onclick="showDispatchModal(' + call.id + ')"><i class="fas fa-truck"></i></button>' : ''}
+                    <div class="btn-group ms-1" role="group" aria-label="Call actions">
+                        <button class="btn btn-sm btn-primary" title="Assign" onclick="showDispatchModal(${call.id})"><i class="fas fa-truck"></i></button>
+                        <button class="btn btn-sm btn-outline-secondary" title="Details" onclick="showCallDetails(${call.id})"><i class="fas fa-circle-info"></i></button>
+                    </div>
                 </div>
             </div>
         </div>`;
@@ -179,6 +183,14 @@ function renderCalls(filter) {
                 showDispatchModal(call.id);
             }
         };
+        // Hover to focus map
+        let hoverTimer;
+        div.addEventListener('mouseenter', ()=>{
+            hoverTimer = setTimeout(()=> focusCallOnMap(call), 180);
+        });
+        div.addEventListener('mouseleave', ()=>{
+            if (hoverTimer) clearTimeout(hoverTimer);
+        });
         container.appendChild(div);
     }
 }
@@ -265,6 +277,24 @@ function focusCall(call) {
     new bootstrap.Modal(document.getElementById('callModal')).show();
 }
 
+function focusCallOnMap(call) {
+    if (call.latitude && call.longitude) {
+        map.setView([call.latitude, call.longitude], Math.min(map.getZoom() || 12, 15));
+    }
+}
+
+function showCallDetails(callId) {
+    const c = callsById.get(callId);
+    if (c) {
+        focusCall(c);
+        return;
+    }
+    fetch(`/api/emergencies/${callId}/`).then(r=>r.ok?r.json():null).then(call=>{
+        if (call) focusCall(call);
+        else showToast('Unable to load call details', 'error');
+    }).catch(()=> showToast('Unable to load call details', 'error'));
+}
+
 function renderFleetList() {
     const el = document.getElementById('fleetList');
     el.innerHTML = '';
@@ -278,7 +308,7 @@ function renderFleetList() {
 }
 
 function renderHospitals() {
-    const el = document.getElementById('hospitalStatus');
+    const el = document.getElementById('hospitalsAccordionBody') || document.getElementById('hospitalStatus');
     if (!el) return;
     if (!hospitals || hospitals.length === 0) {
         el.textContent = 'No hospital data';
@@ -292,12 +322,20 @@ function renderHospitals() {
     })[cap] || 'secondary';
     el.innerHTML = '';
     hospitals.forEach(h => {
-        const div = document.createElement('div');
-        div.className = 'd-flex justify-content-between align-items-center py-1';
+        const row = document.createElement('div');
+        row.className = 'd-flex justify-content-between align-items-center py-1';
         const badge = `<span class="badge bg-${capacityColor(h.emergency_capacity)}">${h.emergency_capacity_display || h.emergency_capacity}</span>`;
-        const beds = (h.available_beds != null && h.total_beds != null) ? ` <small class="text-muted">(${h.available_beds}/${h.total_beds} beds)</small>` : '';
-        div.innerHTML = `<span class='fw-semibold'>${h.name}</span><span>${badge}${beds}</span>`;
-        el.appendChild(div);
+        const beds = (h.available_beds != null && h.total_beds != null) ? ` (${h.available_beds}/${h.total_beds})` : '';
+        row.innerHTML = `
+            <div class='me-2'>
+                <div class='fw-semibold'>${h.name}</div>
+                <div class='text-muted small'>Capacity: ${badge}${beds}</div>
+            </div>
+            <div class='btn-group btn-group-sm'>
+                <button class='btn btn-outline-secondary' title='Edit beds/capacity' onclick='editHospitalCapacity(${h.id}, ${h.available_beds ?? 0}, ${h.total_beds ?? 0}, "${h.emergency_capacity}")'><i class='fas fa-pen'></i></button>
+            </div>
+        `;
+        el.appendChild(row);
     });
 }
 
@@ -311,18 +349,12 @@ function connectWS() {
             callsById.clear(); ambulancesById.clear();
             for (const c of msg.data.emergencies) callsById.set(c.id, c);
             for (const a of msg.data.ambulances) ambulancesById.set(a.id, a);
-            hospitals = msg.data.hospitals || [];
-            renderCalls(currentCallsFilter); renderLayers(); renderFleetList(); renderHospitals();
+            renderCalls(currentCallsFilter); renderLayers(); renderFleetList();
         } else if (msg.type === 'emergency_update') {
             const c = msg.data; callsById.set(c.id, c); renderCalls(currentCallsFilter); renderLayers();
             showToast(`Emergency ${c.call_id}: ${msg.event.replace('_',' ')}`, 'info');
         } else if (msg.type === 'ambulance_update') {
             const a = msg.data; ambulancesById.set(a.id, a); renderLayers(); renderFleetList();
-        } else if (msg.type === 'hospital_update') {
-            const h = msg.data;
-            const idx = hospitals.findIndex(x=>x.id===h.id);
-            if (idx>=0) hospitals[idx]=h; else hospitals.push(h);
-            renderHospitals(); renderLayers();
         }
     };
     ws.onerror = () => {
@@ -359,15 +391,29 @@ function showDispatchModal(callId) {
         ambulanceSelect.innerHTML += `<option value="${amb.id}">Unit ${amb.unit_number} (${amb.unit_type_display || amb.unit_type})</option>`;
     });
     
-    // Populate paramedic options
+    // Populate paramedic options (cached)
     const paramedicSelect = document.getElementById('paramedicSelect');
     paramedicSelect.innerHTML = '<option value="">Auto-assign or select...</option>';
-    fetch('/core/api/paramedics/').then(r=>r.ok?r.json():[]).then(list=>{
-        (list||[]).forEach(p=>{
-            const name = (p.first_name||'') + ' ' + (p.last_name||'');
-            paramedicSelect.innerHTML += `<option value="${p.id}">${name.trim()||p.username}</option>`;
+    const fillParamedics = (list)=>{
+        if (!Array.isArray(list) || list.length === 0) {
+            const opt = document.createElement('option');
+            opt.disabled = true; opt.textContent = 'No paramedics available';
+            paramedicSelect.appendChild(opt);
+            return;
+        }
+        list.forEach(p=>{
+            const name = ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || p.username;
+            paramedicSelect.innerHTML += `<option value="${p.id}">${name}</option>`;
         });
-    }).catch(()=>{});
+    };
+    if (paramedicCache) {
+        fillParamedics(paramedicCache);
+    } else {
+        fetch('/core/api/paramedics/?available=1', { headers: { 'Accept': 'application/json' }})
+            .then(r=> r.ok ? r.json() : [])
+            .then(list=>{ paramedicCache = list||[]; fillParamedics(paramedicCache); })
+            .catch(()=>{ fillParamedics([]); });
+    }
 
     // Add hospital selector dynamically if not present
     let hospitalSelect = document.getElementById('hospitalSelect');
@@ -465,6 +511,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = document.querySelector(`[data-call-filter="${defaultFilter}"]`) || document.querySelector('[data-call-filter="pending"]');
         if (btn) btn.click(); else renderCalls('pending');
     } catch (e) { renderCalls('pending'); }
+    // Ensure hospitals populate even if WS is slow
+    fetch('/dispatch/api/hospitals/', { headers: { 'Accept': 'application/json' }})
+        .then(r=> r.ok ? r.json() : [])
+        .then(list=>{ hospitals = list||[]; renderHospitals(); renderLayers(); })
+        .catch(()=>{});
     // Enable drop from fleet onto map to pick nearest pending call
     const mapEl = document.getElementById('map');
     mapEl.addEventListener('dragover', (e)=>{ e.preventDefault(); });

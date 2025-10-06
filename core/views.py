@@ -7,6 +7,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from .serializers import UserSerializer
+from django.db.models import Q
 
 
 def login_view(request):
@@ -107,4 +108,26 @@ class ParamedicListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return User.objects.filter(role='paramedic', is_active=True).order_by('first_name', 'last_name')
+        qs = User.objects.filter(role='paramedic', is_active=True)
+        # Optional filter: only available
+        only_available = self.request.GET.get('available')
+        if only_available in ('1', 'true', 'True'):
+            # Treat NULL as available for backward compatibility
+            qs = qs.filter(Q(is_available_for_dispatch=True) | Q(is_available_for_dispatch__isnull=True))
+        return qs.order_by('first_name', 'last_name')
+
+
+class ToggleAvailabilityView(generics.UpdateAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+    def patch(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_paramedic', False):
+            return Response({'error': 'Only paramedics can toggle availability'}, status=status.HTTP_403_FORBIDDEN)
+        val = request.data.get('is_available_for_dispatch')
+        request.user.is_available_for_dispatch = bool(val) if isinstance(val, bool) else str(val).lower() in ('1','true','yes','on')
+        request.user.save(update_fields=['is_available_for_dispatch'])
+        return Response(UserSerializer(request.user).data)

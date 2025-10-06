@@ -56,6 +56,10 @@
                             <i class="fas fa-map-marker-alt"></i> Share Location
                         </button>
                 <small class="text-muted" id="gpsStatus">GPS: idle</small>
+                        <div class="form-check form-switch ms-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="availSwitch">
+                            <label class="form-check-label" for="availSwitch">Available</label>
+                        </div>
                     </div>
                 </div>
                 <div class="col-md-6 text-end">
@@ -340,6 +344,21 @@ document.addEventListener('DOMContentLoaded', function() {
     connectWS();
     const gpsBtn = document.getElementById('gpsBtn');
     if (gpsBtn) gpsBtn.addEventListener('click', startGpsSharing);
+    // Availability toggle
+    const avail = document.getElementById('availSwitch');
+    if (avail) {
+        avail.checked = true; // default
+        avail.addEventListener('change', async function() {
+            try {
+                await fetch('/core/api/paramedics/toggle-availability/', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+                    body: JSON.stringify({ is_available_for_dispatch: avail.checked })
+                });
+                showToast(`Availability ${avail.checked ? 'enabled' : 'disabled'}`, 'info');
+            } catch (e) { showToast('Failed to update availability', 'error'); }
+        });
+    }
     // Disable invalid transitions on load
     try {
         const badge = document.getElementById('statusBadge');

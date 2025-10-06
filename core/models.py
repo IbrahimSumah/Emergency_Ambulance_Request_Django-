@@ -12,6 +12,8 @@ class User(AbstractUser):
     
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='dispatcher')
     phone_number = models.CharField(max_length=15, blank=True)
+    # Whether a paramedic is available to be assigned by dispatchers
+    is_available_for_dispatch = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
