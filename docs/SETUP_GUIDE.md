@@ -52,29 +52,39 @@ python manage.py loaddata fixtures/sample_data.json
 
 ### 4. Start Services
 
-#### Option A: Development (Current Setup)
+#### Option A: Development Server (Recommended for Development)
 ```bash
-# Start Django development server
+# Start Django development server (supports ASGI and WebSockets)
 python manage.py runserver
 ```
 
-#### Option B: With Redis (Full Features)
+#### Option B: ASGI Server with Redis (Full Features - Recommended)
 ```bash
-# Start Redis server
+# Start Redis server (required for WebSocket functionality)
 redis-server
 
-# Start Django with WebSocket support
-python manage.py runserver
+# Start ASGI server with Daphne (supports WebSockets and HTTP)
+daphne -b 0.0.0.0 -p 8000 EmmergencyAmbulanceSystem.asgi:application
 ```
 
 #### Option C: Docker (Production-like)
 ```bash
-# Start all services
+# Start all services (uses Daphne ASGI server)
 docker-compose up -d
 
 # View logs
 docker-compose logs -f web
 ```
+
+**Important**: This application uses **ASGI (Asynchronous Server Gateway Interface)** for full WebSocket support. 
+The development server (`runserver`) works for basic testing, but for production and full WebSocket functionality, 
+use **Daphne** or **Uvicorn** ASGI servers.
+
+**ASGI Configuration**:
+- **Application Entry Point**: `EmmergencyAmbulanceSystem.asgi:application`
+- **Recommended Server**: Daphne (included in requirements.txt)
+- **Alternative Server**: Uvicorn
+- **NOT Compatible**: Gunicorn (WSGI server - use Daphne or Uvicorn instead)
 
 ## 🔧 Core Functionality Setup
 
@@ -199,7 +209,12 @@ python manage.py collectstatic
 
 ### WebSocket Connection Failed
 **Problem**: Real-time features not working
-**Solution**: Check channel layer configuration and Redis status
+**Solution**: 
+- Ensure you're using an ASGI server (Daphne or Uvicorn), not the development server
+- Check Redis server is running (if using Redis channel layer)
+- Verify WebSocket endpoint URLs are correct
+- Check browser console for connection errors
+- Ensure ASGI application is properly configured in `asgi.py`
 
 ## 🚀 Production Deployment
 
@@ -215,19 +230,31 @@ REDIS_URL=redis://redis-host:6379/0
 
 ### Docker Deployment
 ```bash
-# Build and deploy
-docker-compose -f docker-compose.prod.yml up -d
+# Build and deploy (uses Daphne ASGI server)
+docker-compose up -d
 
-# SSL with Let's Encrypt
+# View logs
+docker-compose logs -f web
+
+# For production with SSL
+docker-compose -f docker-compose.prod.yml up -d
 certbot --nginx -d yourdomain.com
 ```
 
+**Note**: The Docker configuration uses Daphne ASGI server. Ensure your `docker-compose.yml` 
+or `docker-compose.prod.yml` is configured to use:
+```yaml
+command: daphne -b 0.0.0.0 -p 8000 EmmergencyAmbulanceSystem.asgi:application
+```
+
 ### Performance Optimization
-- Enable Redis for production
-- Use PostgreSQL instead of SQLite
-- Configure nginx for static files
-- Set up proper logging
-- Enable HTTPS
+- **Enable Redis for production**: Required for WebSocket functionality at scale
+- **Use PostgreSQL instead of SQLite**: Better performance and reliability
+- **Configure nginx for static files**: Reverse proxy for static file serving
+- **Use ASGI server**: Daphne or Uvicorn for production (NOT Gunicorn)
+- **Set up proper logging**: Monitor application performance
+- **Enable HTTPS**: Required for secure WebSocket connections (wss://)
+- **Configure connection pooling**: Optimize database and Redis connections
 
 ## 📊 Monitoring & Maintenance
 

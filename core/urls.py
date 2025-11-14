@@ -8,6 +8,8 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('admin-dashboard/', views.admin_dashboard, name='admin_dashboard'),
+    # Testing tools
+    path('test/websocket/', views.test_websocket_view, name='test_websocket'),
     # Admin API for users
     path('api/users/', views.UserListCreateView.as_view(), name='user_list_create'),
     path('api/users/<int:pk>/', views.UserDetailView.as_view(), name='user_detail'),

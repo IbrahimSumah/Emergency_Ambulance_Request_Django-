@@ -67,6 +67,13 @@ def home_view(request):
     return render(request, 'core/welcome.html')
 
 
+def test_websocket_view(request):
+    """WebSocket testing tool page"""
+    # Allow access without authentication for testing purposes
+    # In production, you may want to restrict this to admin users only
+    return render(request, 'test_websocket.html')
+
+
 @login_required
 def admin_dashboard(request):
     if not (getattr(request.user, 'is_admin', False) or getattr(request.user, 'is_staff', False)):

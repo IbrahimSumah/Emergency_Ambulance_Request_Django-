@@ -1,7 +1,10 @@
 import json
+import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
+
+logger = logging.getLogger(__name__)
 
 
 class DispatcherConsumer(AsyncWebsocketConsumer):
@@ -9,9 +12,15 @@ class DispatcherConsumer(AsyncWebsocketConsumer):
     
     async def connect(self):
         """Connect to dispatcher group"""
+        user = self.scope.get("user", AnonymousUser())
+        
+        # Log connection attempt for debugging
+        logger.info(f"WebSocket connection attempt - User: {user}, Is Authenticated: {user != AnonymousUser()}, Is Dispatcher: {getattr(user, 'is_dispatcher', False)}")
+        
         # Check if user is authenticated and is a dispatcher
-        if self.scope["user"] == AnonymousUser() or not self.scope["user"].is_dispatcher:
-            await self.close()
+        if user == AnonymousUser() or not getattr(user, 'is_dispatcher', False):
+            logger.warning(f"WebSocket connection rejected - User: {user}, Is Authenticated: {user != AnonymousUser()}, Is Dispatcher: {getattr(user, 'is_dispatcher', False)}")
+            await self.close(code=4001)  # Custom close code for unauthorized
             return
         
         self.group_name = 'dispatchers'
@@ -29,10 +38,12 @@ class DispatcherConsumer(AsyncWebsocketConsumer):
     
     async def disconnect(self, close_code):
         """Leave dispatcher group"""
-        await self.channel_layer.group_discard(
-            self.group_name,
-            self.channel_name
-        )
+        logger.info(f"WebSocket disconnecting - Close code: {close_code}")
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(
+                self.group_name,
+                self.channel_name
+            )
     
     async def receive(self, text_data):
         """Receive message from WebSocket"""
@@ -124,15 +135,21 @@ class DispatcherConsumer(AsyncWebsocketConsumer):
 class ParamedicConsumer(AsyncWebsocketConsumer):
     """WebSocket consumer for paramedic field interface updates"""
     async def connect(self):
-        user = self.scope.get("user")
+        user = self.scope.get("user", AnonymousUser())
+        
+        # Log connection attempt for debugging
+        logger.info(f"Paramedic WebSocket connection attempt - User: {user}, Is Authenticated: {user != AnonymousUser()}, Is Paramedic: {getattr(user, 'is_paramedic', False)}")
+        
         if user == AnonymousUser() or not getattr(user, 'is_paramedic', False):
-            await self.close()
+            logger.warning(f"Paramedic WebSocket connection rejected - User: {user}, Is Authenticated: {user != AnonymousUser()}, Is Paramedic: {getattr(user, 'is_paramedic', False)}")
+            await self.close(code=4001)  # Custom close code for unauthorized
             return
         self.group_name = f"paramedic_{user.id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
+        logger.info(f"Paramedic WebSocket disconnecting - Close code: {close_code}")
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 

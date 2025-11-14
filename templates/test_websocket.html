@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Testing Tool - Emergency Ambulance System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #007bff;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        button.disconnect {
+            background-color: #dc3545;
+        }
+        button.disconnect:hover {
+            background-color: #c82333;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        #log {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+        }
+        .log-entry.info {
+            color: #4ec9b0;
+        }
+        .log-entry.success {
+            color: #4fc1ff;
+        }
+        .log-entry.error {
+            color: #f48771;
+        }
+        .log-entry.warning {
+            color: #ce9178;
+        }
+        .log-entry.message {
+            color: #dcdcaa;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 300px;
+        }
+        label {
+            display: inline-block;
+            width: 150px;
+            font-weight: bold;
+        }
+        .form-group {
+            margin: 10px 0;
+        }
+        .test-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Testing Tool</h1>
+        <p>Test WebSocket connections for Dispatcher and Paramedic consumers.</p>
+        
+        <div class="section">
+            <h2>Connection Settings</h2>
+            <div class="form-group">
+                <label>WebSocket URL:</label>
+                <select id="wsUrl">
+                    <option value="ws://localhost:8000/ws/dispatchers/">Dispatcher (ws://localhost:8000/ws/dispatchers/)</option>
+                    <option value="ws://localhost:8000/ws/paramedic/">Paramedic (ws://localhost:8000/ws/paramedic/)</option>
+                </select>
+            </div>
+            
+            <div class="status disconnected" id="status">
+                Status: Disconnected
+            </div>
+            
+            <div class="test-controls">
+                <button id="connectBtn" onclick="connectWebSocket()">Connect</button>
+                <button id="disconnectBtn" onclick="disconnectWebSocket()" disabled class="disconnect">Disconnect</button>
+                <button onclick="clearLog()">Clear Log</button>
+                <button onclick="sendPing()" id="pingBtn" disabled>Send Ping</button>
+                <button onclick="requestInitialData()" id="initBtn" disabled>Request Initial Data</button>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Test Messages</h2>
+            <div class="form-group">
+                <label>Message Type:</label>
+                <select id="messageType">
+                    <option value="ping">Ping</option>
+                    <option value="get_initial_data">Get Initial Data</option>
+                    <option value="custom">Custom JSON</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Custom JSON:</label>
+                <textarea id="customMessage" rows="3" style="width: 500px;" placeholder='{"type": "ping"}'></textarea>
+            </div>
+            <button onclick="sendCustomMessage()" id="sendBtn" disabled>Send Message</button>
+        </div>
+        
+        <div class="section">
+            <h2>Message Log</h2>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            log('Log cleared', 'info');
+        }
+
+        function updateStatus(status, message) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${status}`;
+            statusDiv.textContent = `Status: ${message}`;
+        }
+
+        function updateButtons(connected) {
+            document.getElementById('connectBtn').disabled = connected;
+            document.getElementById('disconnectBtn').disabled = !connected;
+            document.getElementById('pingBtn').disabled = !connected;
+            document.getElementById('initBtn').disabled = !connected;
+            document.getElementById('sendBtn').disabled = !connected;
+        }
+
+        function connectWebSocket() {
+            const url = document.getElementById('wsUrl').value;
+            log(`Connecting to ${url}...`, 'info');
+            updateStatus('connecting', 'Connecting...');
+            
+            try {
+                ws = new WebSocket(url);
+                
+                ws.onopen = function(event) {
+                    log('WebSocket connection opened!', 'success');
+                    updateStatus('connected', 'Connected');
+                    updateButtons(true);
+                    reconnectAttempts = 0;
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`Received: ${JSON.stringify(data, null, 2)}`, 'message');
+                    } catch (e) {
+                        log(`Received (text): ${event.data}`, 'message');
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    log(`WebSocket error: ${error}`, 'error');
+                    updateStatus('disconnected', 'Error');
+                };
+                
+                ws.onclose = function(event) {
+                    log(`WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`, 'warning');
+                    updateStatus('disconnected', 'Disconnected');
+                    updateButtons(false);
+                    
+                    // Attempt reconnection if not manually closed
+                    if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`, 'warning');
+                        setTimeout(connectWebSocket, 2000);
+                    }
+                };
+            } catch (error) {
+                log(`Connection error: ${error.message}`, 'error');
+                updateStatus('disconnected', 'Connection Failed');
+            }
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close(1000, 'User requested disconnect');
+                ws = null;
+            }
+        }
+
+        function sendMessage(message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
+                ws.send(messageStr);
+                log(`Sent: ${messageStr}`, 'success');
+            } else {
+                log('WebSocket is not connected!', 'error');
+            }
+        }
+
+        function sendPing() {
+            sendMessage({ type: 'ping' });
+        }
+
+        function requestInitialData() {
+            sendMessage({ type: 'get_initial_data' });
+        }
+
+        function sendCustomMessage() {
+            const messageType = document.getElementById('messageType').value;
+            
+            if (messageType === 'ping') {
+                sendPing();
+            } else if (messageType === 'get_initial_data') {
+                requestInitialData();
+            } else {
+                const customMessage = document.getElementById('customMessage').value;
+                try {
+                    const parsed = JSON.parse(customMessage);
+                    sendMessage(parsed);
+                } catch (e) {
+                    log(`Invalid JSON: ${e.message}`, 'error');
+                }
+            }
+        }
+
+        // Initialize
+        log('WebSocket Testing Tool initialized', 'info');
+        log('Note: You must be logged in as dispatcher or paramedic for authentication', 'warning');
+        log('To test dispatcher: Login as dispatcher user first', 'info');
+        log('To test paramedic: Login as paramedic user first', 'info');
+    </script>
+</body>
+</html>
+
+

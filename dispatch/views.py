@@ -2,8 +2,6 @@ from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
 from .models import Ambulance, Hospital
@@ -13,6 +11,7 @@ from .serializers import (
     HospitalSerializer,
     DispatchSerializer,
 )
+from core.utils import send_ambulance_notification, send_emergency_notification, send_hospital_notification
 
 
 class AmbulanceListCreateView(generics.ListCreateAPIView):
@@ -67,20 +66,12 @@ def update_ambulance_location(request, pk):
     if serializer.is_valid():
         ambulance = serializer.save()
         
-        # Send real-time notification
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
-        
-        channel_layer = get_channel_layer()
-        if channel_layer:
-            async_to_sync(channel_layer.group_send)(
-                'dispatchers',
-                {
-                    'type': 'ambulance_update',
-                    'event': 'LOCATION_UPDATE',
-                    'data': AmbulanceSerializer(ambulance).data
-                }
-            )
+        # Send real-time notification using optimized utility function
+        ambulance_data = AmbulanceSerializer(ambulance).data
+        send_ambulance_notification(
+            event='LOCATION_UPDATE',
+            ambulance_data=ambulance_data
+        )
         
         return Response(AmbulanceSerializer(ambulance).data)
     
@@ -129,47 +120,36 @@ def dispatch_ambulance(request):
                 pass
         emergency_call.update_status('DISPATCHED')
         
-        # Send real-time notifications
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
+        # Send real-time notifications using optimized utility functions
+        from emergencies.serializers import EmergencyCallSerializer
         
-        channel_layer = get_channel_layer()
-        if channel_layer:
-            # Notify about unit dispatch
-            async_to_sync(channel_layer.group_send)(
-                'dispatchers',
-                {
-                    'type': 'ambulance_update',
-                    'event': 'UNIT_DISPATCHED',
-                    'data': AmbulanceSerializer(ambulance).data
-                }
+        # Notify dispatchers about ambulance dispatch
+        ambulance_data = AmbulanceSerializer(ambulance).data
+        send_ambulance_notification(
+            event='UNIT_DISPATCHED',
+            ambulance_data=ambulance_data
+        )
+        
+        # Notify dispatchers about emergency status update
+        emergency_data = EmergencyCallSerializer(emergency_call).data
+        send_emergency_notification(
+            event='STATUS_UPDATE',
+            emergency_data=emergency_data,
+            paramedic_id=None  # Only send to dispatchers
+        )
+        
+        # Notify assigned paramedic about dispatch (UNIT_DISPATCHED event)
+        if emergency_call.assigned_paramedic_id:
+            send_emergency_notification(
+                event='UNIT_DISPATCHED',
+                emergency_data=emergency_data,
+                paramedic_id=emergency_call.assigned_paramedic_id
             )
-            
-            # Notify about emergency update
-            from emergencies.serializers import EmergencyCallSerializer
-            async_to_sync(channel_layer.group_send)(
-                'dispatchers',
-                {
-                    'type': 'emergency_update',
-                    'event': 'STATUS_UPDATE',
-                    'data': EmergencyCallSerializer(emergency_call).data
-                }
-            )
-            # Notify assigned paramedic channel
-            if emergency_call.assigned_paramedic_id:
-                async_to_sync(channel_layer.group_send)(
-                    f'paramedic_{emergency_call.assigned_paramedic_id}',
-                    {
-                        'type': 'emergency_update',
-                        'event': 'UNIT_DISPATCHED',
-                        'data': EmergencyCallSerializer(emergency_call).data
-                    }
-                )
         
         return Response({
             'message': 'Ambulance dispatched successfully',
-            'emergency_call': EmergencyCallSerializer(emergency_call).data,
-            'ambulance': AmbulanceSerializer(ambulance).data
+            'emergency_call': emergency_data,
+            'ambulance': ambulance_data
         })
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -247,18 +227,13 @@ def update_hospital_capacity(request, pk):
     serializer = HospitalSerializer(hospital, data=data, partial=True)
     if serializer.is_valid():
         hospital = serializer.save()
-        # Broadcast update to dispatchers
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
-        channel_layer = get_channel_layer()
-        if channel_layer:
-            async_to_sync(channel_layer.group_send)(
-                'dispatchers',
-                {
-                    'type': 'hospital_update',
-                    'event': 'CAPACITY_UPDATE',
-                    'data': HospitalSerializer(hospital).data
-                }
-            )
-        return Response(HospitalSerializer(hospital).data)
+        
+        # Broadcast update to dispatchers using optimized utility function
+        hospital_data = HospitalSerializer(hospital).data
+        send_hospital_notification(
+            event='CAPACITY_UPDATE',
+            hospital_data=hospital_data
+        )
+        
+        return Response(hospital_data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

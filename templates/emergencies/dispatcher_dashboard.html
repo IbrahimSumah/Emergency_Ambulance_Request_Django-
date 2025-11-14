@@ -106,7 +106,7 @@
             </select>
           </div>
           <div class="mb-3">
-            <label class="form-label">Assign Paramedic (Optional)</label>
+            <label class="form-label">Assign Paramedic</label>
             <select class="form-select" id="paramedicSelect">
               <option value="">Auto-assign or select...</option>
             </select>
@@ -528,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rect = mapEl.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        const latlng = map.containerPointToLatLng(L.point(x, y));
+        const latlng = map.containerPointToLatLng([x, y]);
         // Find nearest RECEIVED call within ~5km
         let best = null; let bestD = Infinity;
         const toRad = (v)=> v*Math.PI/180;

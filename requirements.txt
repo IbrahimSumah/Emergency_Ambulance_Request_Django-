@@ -7,7 +7,6 @@ pillow
 redis
 requests
 python-decouple
-gunicorn
 whitenoise
 psycopg2-binary
 daphne
@@ -18,3 +17,5 @@ python-dotenv
 django-extensions
 pytest
 pytest-django
+# Testing dependencies (optional)
+websockets

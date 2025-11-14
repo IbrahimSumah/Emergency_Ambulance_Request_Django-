@@ -11,6 +11,7 @@ import os
 import uuid
 from .models import EmergencyCall
 from .serializers import EmergencyCallSerializer, EmergencyCallCreateSerializer, EmergencyCallStatusUpdateSerializer
+from core.utils import send_emergency_notification
 
 
 logger = logging.getLogger(__name__)
@@ -118,37 +119,13 @@ class EmergencyCallListCreateView(generics.ListCreateAPIView):
         return emergency_call
     
     def send_notification(self, event_type, emergency_call):
-        """Send WebSocket notification"""
-        try:
-            from channels.layers import get_channel_layer
-            from asgiref.sync import async_to_sync
-            import json
-            
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                async_to_sync(channel_layer.group_send)(
-                    'dispatchers',
-                    {
-                        'type': 'emergency_update',
-                        'event': event_type,
-                        'data': EmergencyCallSerializer(emergency_call).data
-                    }
-                )
-                # Notify assigned paramedic if present
-                if emergency_call.assigned_paramedic_id:
-                    async_to_sync(channel_layer.group_send)(
-                        f'paramedic_{emergency_call.assigned_paramedic_id}',
-                        {
-                            'type': 'emergency_update',
-                            'event': event_type,
-                            'data': EmergencyCallSerializer(emergency_call).data
-                        }
-                    )
-        except Exception as e:
-            # Log the error but don't fail the request
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to send WebSocket notification: {e}")
+        """Send WebSocket notification using optimized utility function"""
+        emergency_data = EmergencyCallSerializer(emergency_call).data
+        send_emergency_notification(
+            event=event_type,
+            emergency_data=emergency_data,
+            paramedic_id=emergency_call.assigned_paramedic_id
+        )
 
 
 class EmergencyCallDetailView(generics.RetrieveUpdateAPIView):
@@ -167,35 +144,13 @@ class EmergencyCallDetailView(generics.RetrieveUpdateAPIView):
             self.send_notification('STATUS_UPDATE', emergency_call)
     
     def send_notification(self, event_type, emergency_call):
-        """Send WebSocket notification"""
-        try:
-            from channels.layers import get_channel_layer
-            from asgiref.sync import async_to_sync
-            
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                async_to_sync(channel_layer.group_send)(
-                    'dispatchers',
-                    {
-                        'type': 'emergency_update',
-                        'event': event_type,
-                        'data': EmergencyCallSerializer(emergency_call).data
-                    }
-                )
-                if emergency_call.assigned_paramedic_id:
-                    async_to_sync(channel_layer.group_send)(
-                        f'paramedic_{emergency_call.assigned_paramedic_id}',
-                        {
-                            'type': 'emergency_update',
-                            'event': event_type,
-                            'data': EmergencyCallSerializer(emergency_call).data
-                        }
-                    )
-        except Exception as e:
-            # Log the error but don't fail the request
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to send WebSocket notification: {e}")
+        """Send WebSocket notification using optimized utility function"""
+        emergency_data = EmergencyCallSerializer(emergency_call).data
+        send_emergency_notification(
+            event=event_type,
+            emergency_data=emergency_data,
+            paramedic_id=emergency_call.assigned_paramedic_id
+        )
 
 
 @api_view(['PATCH'])
@@ -218,26 +173,13 @@ def update_emergency_status(request, pk):
         old_status = emergency_call.status
         emergency_call = serializer.save()
         
-        # Send real-time notification
-        try:
-            from channels.layers import get_channel_layer
-            from asgiref.sync import async_to_sync
-            
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                async_to_sync(channel_layer.group_send)(
-                    'dispatchers',
-                    {
-                        'type': 'emergency_update',
-                        'event': 'STATUS_UPDATE',
-                        'data': EmergencyCallSerializer(emergency_call).data
-                    }
-                )
-        except Exception as e:
-            # Log the error but don't fail the request
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to send WebSocket notification: {e}")
+        # Send real-time notification using optimized utility function
+        emergency_data = EmergencyCallSerializer(emergency_call).data
+        send_emergency_notification(
+            event='STATUS_UPDATE',
+            emergency_data=emergency_data,
+            paramedic_id=emergency_call.assigned_paramedic_id
+        )
         
         return Response(EmergencyCallSerializer(emergency_call).data)
     
