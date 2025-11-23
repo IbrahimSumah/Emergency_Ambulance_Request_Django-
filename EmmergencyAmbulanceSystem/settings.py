@@ -31,6 +31,7 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',  # ASGI server - must be first for runserver integration
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -232,7 +233,22 @@ LOGGING = {
         },
         'channels': {
             'handlers': ['console'],
-            'level': 'WARNING',
+            'level': 'INFO',  # Changed from WARNING to INFO to see more details
+            'propagate': False,
+        },
+        'channels.auth': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'daphne': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
             'propagate': False,
         },
     },
